@@ -10,3 +10,6 @@ dist/
 local.properties
 .idea/
 *.iml
+test-results/
+playwright-report/
+.kotlin/
