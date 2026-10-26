@@ -12,7 +12,11 @@ An empty repository now contains a working local-first vertical slice: Android m
 
 ### Validation
 
-See VALIDATION.md for executed checks and remaining hardware validation.
+- Backend: 8 tests passed.
+- Web: 3 unit tests, strict TypeScript check, production build and 1 real-API Playwright integration test passed (desktop and 390px viewport).
+- Android: 3 JVM tests, debug APK compilation and lint passed with Gradle 8.9 / SDK 35.
+- npm audit and Python requirements audit: no known vulnerabilities.
+- Physical-device microphone, notifications and private HTTPS sync still require manual verification. See VALIDATION.md for commands and nonblocking warnings.
 
 ### Remaining limitations
 
