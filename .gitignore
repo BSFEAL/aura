@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.db
+.env
+node_modules/
+dist/
+.gradle/
+**/build/
+local.properties
+.idea/
+*.iml
+test-results/
+playwright-report/
+.kotlin/
