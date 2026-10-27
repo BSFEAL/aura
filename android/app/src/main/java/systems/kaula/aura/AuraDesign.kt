@@ -149,3 +149,24 @@ object AuraColors {
         Text("0–1 model output · class may change between updates",style=MaterialTheme.typography.labelSmall,color=AuraColors.Muted)
     }
 }
+
+/** Vector reconstruction of the user-supplied AURA wave identity; no remote assets. */
+@Composable fun AuraBrand(modifier: Modifier=Modifier, expanded: Boolean=false) {
+    Row(modifier,verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+        androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(R.drawable.aura_wave),contentDescription=null,
+            modifier=Modifier.size(if(expanded) 80.dp else 54.dp,if(expanded) 52.dp else 36.dp))
+        Column {
+            Canvas(Modifier.size(if(expanded) 130.dp else 108.dp,if(expanded) 30.dp else 24.dp).semantics { contentDescription="AURA" }) {
+                val ink=Color(0xFFEAF1FF); val stroke=size.height*.085f
+                fun segment(x: Float,y: Float,a: Float,b: Float)=drawLine(ink,androidx.compose.ui.geometry.Offset(size.width*x,size.height*y),androidx.compose.ui.geometry.Offset(size.width*a,size.height*b),stroke,StrokeCap.Round)
+                segment(.01f,.90f,.085f,.12f);segment(.085f,.12f,.16f,.90f)
+                val u=Path().apply { moveTo(size.width*.27f,size.height*.12f);lineTo(size.width*.27f,size.height*.57f);cubicTo(size.width*.27f,size.height*1.02f,size.width*.42f,size.height*1.02f,size.width*.42f,size.height*.57f);lineTo(size.width*.42f,size.height*.12f) }
+                drawPath(u,ink,style=Stroke(stroke,cap=StrokeCap.Round))
+                val r=Path().apply { moveTo(size.width*.55f,size.height*.12f);lineTo(size.width*.65f,size.height*.12f);cubicTo(size.width*.75f,size.height*.12f,size.width*.75f,size.height*.53f,size.width*.65f,size.height*.53f);lineTo(size.width*.55f,size.height*.53f);lineTo(size.width*.55f,size.height*.90f) }
+                drawPath(r,ink,style=Stroke(stroke,cap=StrokeCap.Round));segment(.63f,.53f,.72f,.90f)
+                segment(.83f,.90f,.905f,.12f);segment(.905f,.12f,.98f,.90f)
+            }
+            Text("by kaula.systems",style=MaterialTheme.typography.labelSmall,color=AuraColors.Muted)
+        }
+    }
+}

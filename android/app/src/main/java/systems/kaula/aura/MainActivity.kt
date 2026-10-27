@@ -116,10 +116,7 @@ class MainActivity : ComponentActivity() {
         val tablet=maxWidth>=600.dp
         Scaffold(topBar={
             Row(Modifier.fillMaxWidth().background(AuraColors.Background).statusBarsPadding().padding(horizontal=20.dp,vertical=10.dp),verticalAlignment=Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("AURA",style=MaterialTheme.typography.headlineLarge,color=AuraColors.Cyan)
-                    Text("by kaula.systems",style=MaterialTheme.typography.labelSmall,color=AuraColors.Muted)
-                }
+                AuraBrand(Modifier.weight(1f))
                 IconButton(onClick={tab="Settings";selectedEvent=null},modifier=Modifier.semantics { contentDescription="Open settings" }) { AuraIcon("Settings") }
             }
         },bottomBar={if(!tablet) AuraNavigation(tab,false) { tab=it;selectedEvent=null }}) { padding ->
@@ -250,7 +247,7 @@ class MainActivity : ComponentActivity() {
                     }
                     "About" -> {
                         AuraPanel {
-                            Text("AURA",style=MaterialTheme.typography.displaySmall,color=AuraColors.Cyan)
+                            AuraBrand(expanded=true)
                             Text("by kaula.systems · v0.4.2 (8)")
                             Text("Local-first ambient intelligence. Experimental on-device sound classification with explicit user control.")
                             DetailLine("Model",ModelSpec.VERSION)
