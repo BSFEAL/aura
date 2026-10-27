@@ -1,4 +1,4 @@
-# AURA v0.4.0 — Natural-language rule previews
+# AURA v0.4.2 — Android sound intelligence interface
 
 **AURA by kaula.systems** is a local-first ambient intelligence platform. This experimental release adds a real, bundled **on-device YAMNet TFLite classifier**, typed rules, temporal sound episodes and Android diagnostics to the verified v0.2 RMS/Compose/FastAPI/SQLite/TypeScript foundation.
 

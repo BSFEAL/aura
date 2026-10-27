@@ -33,7 +33,9 @@ object AuraColors {
 @Composable fun AuraTheme(content: @Composable ()->Unit) {
     MaterialTheme(colorScheme=darkColorScheme(primary=AuraColors.Cyan,onPrimary=Color(0xFF001522),secondary=AuraColors.Indigo,
         background=AuraColors.Background,onBackground=Color(0xFFEAF1FF),surface=AuraColors.Surface,onSurface=Color(0xFFEAF1FF),
-        surfaceVariant=Color(0xFF10263C),onSurfaceVariant=AuraColors.Muted,outline=AuraColors.Border),
+        surfaceVariant=Color(0xFF10263C),onSurfaceVariant=AuraColors.Muted,outline=AuraColors.Border,outlineVariant=AuraColors.Border,
+        primaryContainer=Color(0xFF073D5A),onPrimaryContainer=Color(0xFFEAF1FF),secondaryContainer=Color(0xFF252344),onSecondaryContainer=Color(0xFFEAF1FF),
+        surfaceContainer=AuraColors.Surface,surfaceContainerHigh=AuraColors.Surface,surfaceContainerHighest=AuraColors.Surface),
         shapes=Shapes(small=RoundedCornerShape(10.dp),medium=RoundedCornerShape(16.dp),large=RoundedCornerShape(22.dp)),content=content)
 }
 /** Small vector marks drawn in code; no bitmap, icon font or extra icon dependency. */

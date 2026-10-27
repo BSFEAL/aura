@@ -16,15 +16,20 @@ import java.io.File
 @RunWith(AndroidJUnit4::class)
 class AdaptiveDesignTest {
     @get:Rule val compose=createAndroidComposeRule<MainActivity>()
-    private fun shell(command: String) {
+    private fun shell(command: String): String {
         InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(command).use {
-            java.io.FileInputStream(it.fileDescriptor).bufferedReader().use { reader->reader.readText() }
+            java.io.FileInputStream(it.fileDescriptor).bufferedReader().use { reader->return reader.readText() }
         }
     }
     private fun capture(name: String) {
         compose.waitForIdle()
         val root=File(compose.activity.getExternalFilesDir(null),"screenshots").apply { mkdirs() }
-        File(root,"$name.png").outputStream().use { compose.onNodeWithTag("aura-app").captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG,100,it) }
+        val image=File(root,"$name.png")
+        image.outputStream().use { compose.onNodeWithTag("aura-app").captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG,100,it) }
+        // Gradle may uninstall the test target after execution. Export while it still exists.
+        // Only instrumentation's shell identity copies these explicit test screenshots.
+        val exported="/sdcard/Download/aura-ui-screenshots/$name.png"
+        assertEquals("exported",shell("mkdir -p /sdcard/Download/aura-ui-screenshots && cp ${image.absolutePath} $exported && test -s $exported && echo exported").trim())
     }
     @Test fun phoneScreensAndTabletNavigationRemainAccessible() {
         val originals=Store.rules(compose.activity)
