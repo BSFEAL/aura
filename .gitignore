@@ -13,3 +13,6 @@ local.properties
 test-results/
 playwright-report/
 .kotlin/
+*.jks
+*.keystore
+signing-report.json

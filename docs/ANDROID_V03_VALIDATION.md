@@ -1,8 +1,12 @@
 # AURA v0.3 physical-device validation
 
-**Status: all physical-device scenarios PENDING.** No physical phone is attached to this development environment. Emulator/inference tests do not establish microphone acoustics, background reliability, thermal or battery behavior.
+**Status: structured physical-device scenarios remain PENDING.** No physical phone is attached to this development environment. Emulator/inference tests do not establish microphone acoustics, background reliability, thermal or battery behavior.
 
 Use an ordinary Android 8+ phone and a trusted debug APK artifact. Upgrades require the same application ID **and signing certificate**. The old GitHub debug signing key was ephemeral; an APK from a different Actions run may not update an installed v0.2 APK. Do not uninstall to “pass” an upgrade test, since uninstall removes data. For the migration test build both versions with the same retained local debug keystore, or obtain the original signing key. This distribution limitation is not a completed upgrade test.
+
+## Initial user feedback — 2026-10-27
+
+The user reports that local events are appearing and dog-bark detection is working on their phone. This is a useful initial functionality report, not a controlled playback or accuracy evaluation. Phone model, Android version, APK hash, rule settings and acoustic conditions were not supplied; matrix rows remain pending. The user also reports having to uninstall the previous version to install v0.3. Treat upgrade compatibility as unresolved for that installed certificate, and do not recommend uninstalling to test data preservation.
 
 ## Run record (complete for each phone/session)
 

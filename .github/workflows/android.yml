@@ -11,6 +11,13 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Retained signing is restricted to main, never PR or feature-branch code.
+    env:
+      AURA_SIGNING_KEYSTORE_BASE64: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && secrets.AURA_SIGNING_KEYSTORE_BASE64 || '' }}
+      AURA_SIGNING_STORE_PASSWORD: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && secrets.AURA_SIGNING_STORE_PASSWORD || '' }}
+      AURA_SIGNING_KEY_ALIAS: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && secrets.AURA_SIGNING_KEY_ALIAS || '' }}
+      AURA_SIGNING_KEY_PASSWORD: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && secrets.AURA_SIGNING_KEY_PASSWORD || '' }}
+      AURA_SIGNING_CERT_SHA256: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.AURA_SIGNING_CERT_SHA256 || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -30,12 +37,25 @@ jobs:
       - run: python tools/verify_model.py
       - run: pip install -r tools/requirements-model.txt
       - run: python tools/model_smoke.py --report model-smoke-report.json
+      - name: Prepare optional retained signing
+        run: python tools/android_signing.py prepare
       - run: ./gradlew testDebugUnitTest assembleDebug lintDebug --no-daemon
         working-directory: android
+      - name: Verify APK signature and publish certificate metadata
+        run: >-
+          python tools/android_signing.py report
+          --apk android/app/build/outputs/apk/debug/app-debug.apk
+          --apksigner "$ANDROID_HOME/build-tools/34.0.0/apksigner"
+          --output android/app/build/outputs/apk/debug/signing-report.json
+      - name: Remove temporary signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/aura-signing.jks"
       - uses: actions/upload-artifact@v4
         with:
           name: aura-v0.3-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android/app/build/outputs/apk/debug/signing-report.json
           if-no-files-found: error
           retention-days: 14
       - uses: actions/upload-artifact@v4
