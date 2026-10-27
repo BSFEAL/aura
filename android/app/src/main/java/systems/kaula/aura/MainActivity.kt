@@ -128,7 +128,7 @@ class MainActivity : ComponentActivity() {
             Box(Modifier.weight(1f).fillMaxHeight(),contentAlignment=Alignment.TopCenter) {
             key(tab,selectedEvent) {
             Column(Modifier.widthIn(max=1000.dp).fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(horizontal=20.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
-                Text(if(tab=="Events" && selectedEvent!=null) "Event Details" else if(tab=="Live") "Live Sound Intelligence" else tab,style=MaterialTheme.typography.headlineSmall)
+                if(tablet || tab!="Dashboard") Text(if(tab=="Events" && selectedEvent!=null) "Event Details" else if(tab=="Live") "Live Sound Intelligence" else tab,style=MaterialTheme.typography.headlineSmall)
                 if(tab!="Dashboard" && MonitorService.active.value) {
                     Text("${MonitorService.status.value} · Microphone in use · on-device processing",style=MaterialTheme.typography.labelMedium,color=AuraColors.Cyan)
                     TextButton(onClick={stopService(Intent(this@MainActivity,MonitorService::class.java))}) { Text("Stop monitoring") }
@@ -144,21 +144,24 @@ class MainActivity : ComponentActivity() {
                         val active=best?.value?.phase==Phase.ACTIVE
                         val hero: @Composable ()->Unit = {
                             MonitoringHero(MonitorService.status.value,MonitorService.active.value,MonitorService.modelLoaded.value,
-                                !syncing && !fileBusy.value && !MonitorService.finishing.value) {
+                                !syncing && !fileBusy.value && !MonitorService.finishing.value,compact=!tablet) {
                                 if(MonitorService.active.value) stopService(Intent(this@MainActivity,MonitorService::class.java)) else startMonitoring()
                             }
                         }
                         val summary: @Composable ()->Unit = {
-                            AuraPanel {
-                                Text("RMS",style=MaterialTheme.typography.labelLarge,color=AuraColors.Muted)
-                                Text("%.3f".format(MonitorService.level.doubleValue),style=MaterialTheme.typography.headlineLarge)
-                                Text("Uncalibrated amplitude",style=MaterialTheme.typography.bodySmall,color=AuraColors.Muted)
-                                HorizontalDivider(color=AuraColors.Border)
-                                Text("Current event",style=MaterialTheme.typography.labelLarge,color=AuraColors.Muted)
-                                Text(if(active && best!=null) "Possible ${rules.find { it.id==best.key }?.label}" else "Unknown / unconfirmed",style=MaterialTheme.typography.titleMedium)
-                                best?.value?.let { Text("Raw %.3f · smoothed %.3f".format(it.raw,it.smoothed),color=AuraColors.Cyan) }
-                                Text(if(MonitorService.modelLoaded.value) "YAMNet · on-device inference" else "Classifier inactive/unavailable · RMS independent",style=MaterialTheme.typography.bodySmall)
+                            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+                                Box(Modifier.weight(1f)) { AuraPanel {
+                                    Text("RMS",style=MaterialTheme.typography.labelLarge,color=AuraColors.Muted)
+                                    Text("%.3f".format(MonitorService.level.doubleValue),style=MaterialTheme.typography.headlineMedium)
+                                    Text("Uncalibrated amplitude",style=MaterialTheme.typography.bodySmall,color=AuraColors.Muted)
+                                } }
+                                Box(Modifier.weight(1f)) { AuraPanel {
+                                    Text("Current event",style=MaterialTheme.typography.labelLarge,color=AuraColors.Muted)
+                                    Text(if(active && best!=null) "Possible ${rules.find { it.id==best.key }?.label}" else "Unknown / unconfirmed",style=MaterialTheme.typography.bodyMedium)
+                                    best?.value?.let { Text("Raw %.3f · smoothed %.3f".format(it.raw,it.smoothed),style=MaterialTheme.typography.bodySmall,color=AuraColors.Cyan) }
+                                } }
                             }
+                            Text(if(MonitorService.modelLoaded.value) "YAMNet · on-device inference" else "Classifier inactive/unavailable · RMS independent",style=MaterialTheme.typography.bodySmall,color=AuraColors.Muted)
                         }
                         if(tablet) Row(horizontalArrangement=Arrangement.spacedBy(20.dp)) {
                             Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(16.dp)) { hero() }

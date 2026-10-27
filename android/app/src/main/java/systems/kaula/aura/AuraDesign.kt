@@ -70,7 +70,7 @@ object AuraColors {
         pages.forEach { page-> NavigationBarItem(selected=current==page,onClick={onSelect(page)},icon={AuraIcon(page,tint=if(current==page) AuraColors.Cyan else AuraColors.Muted)},label={Text(page,fontSize=11.sp,maxLines=1)},colors=NavigationBarItemDefaults.colors(indicatorColor=Color(0xFF102C43))) }
     }
 }
-@Composable fun MonitoringHero(status: String, active: Boolean, modelLoaded: Boolean, enabled: Boolean, onToggle: ()->Unit) {
+@Composable fun MonitoringHero(status: String, active: Boolean, modelLoaded: Boolean, enabled: Boolean, compact: Boolean=false, onToggle: ()->Unit) {
     AuraPanel {
         Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)) {
             Box(Modifier.size(10.dp).background(if(active && modelLoaded) Color(0xFF08D497) else AuraColors.Muted,CircleShape))
@@ -78,8 +78,8 @@ object AuraColors {
                 Text(if(active) "Microphone in use · on-device processing" else "Microphone off · activate to begin",style=MaterialTheme.typography.bodySmall,color=AuraColors.Muted) }
         }
     }
-    Column(Modifier.fillMaxWidth().padding(vertical=8.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(16.dp)) {
-        Box(Modifier.size(150.dp).background(Brush.radialGradient(listOf(Color(0xFF145890),Color(0xFF041729))),CircleShape),contentAlignment=Alignment.Center) {
+    Column(Modifier.fillMaxWidth().padding(vertical=if(compact) 0.dp else 8.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(12.dp)) {
+        Box(Modifier.size(if(compact) 120.dp else 150.dp).background(Brush.radialGradient(listOf(Color(0xFF145890),Color(0xFF041729))),CircleShape),contentAlignment=Alignment.Center) {
             Canvas(Modifier.fillMaxSize()) { drawCircle(AuraColors.Blue,style=Stroke(8.dp.toPx()));drawCircle(AuraColors.Cyan,radius=size.minDimension/2-7.dp.toPx(),style=Stroke(2.dp.toPx())) }
             AuraIcon("mic",Modifier.size(64.dp))
         }
