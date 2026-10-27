@@ -63,10 +63,12 @@ class UiLifecycleTest {
             compose.onNodeWithText("Private HTTPS backend URL").performScrollTo().performTextReplacement("https://private.invalid")
             compose.onNodeWithText("AURA API token (not the OpenAI key)").performScrollTo().performTextReplacement("test-aura-token-at-least-24")
             compose.onNodeWithText("Barking example").performScrollTo().performClick()
+            compose.onNodeWithText("What should AURA monitor?").assertTextContains("Notify me when my dog barks for 2 seconds, with a cooldown of 30 seconds")
             compose.onNodeWithText("Send text to OpenAI & preview").performScrollTo().assertIsNotEnabled()
             assertEquals(0,calls.get())
             compose.onNodeWithContentDescription("Consent to OpenAI rule text sharing").performScrollTo().performClick()
-            compose.onNodeWithText("Send text to OpenAI & preview").performScrollTo().performClick()
+            compose.onNodeWithContentDescription("Consent to OpenAI rule text sharing").assertIsOn()
+            compose.onNodeWithText("Send text to OpenAI & preview").performScrollTo().assertIsEnabled().performClick()
             compose.waitUntil(10000) { calls.get()==1 }
             compose.onNodeWithText("Review proposed rule").performScrollTo().assertIsDisplayed()
             assertEquals(originals,Store.rules(compose.activity));assertFalse(MonitorService.active.value)

@@ -12,6 +12,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.foundation.background
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -20,9 +21,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.*
 import java.text.DateFormat
@@ -109,7 +113,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }) { padding ->
-            Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(padding).verticalScroll(rememberScrollState()).padding(20.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
+            Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(padding).consumeWindowInsets(padding).imePadding().verticalScroll(rememberScrollState()).padding(20.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
                 Text(tab,style=MaterialTheme.typography.headlineSmall)
                 Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                     Text("${MonitorService.status.value} · ${if(MonitorService.active.value) "Microphone in use" else "Microphone off"}",color=MaterialTheme.colorScheme.primary)
@@ -208,7 +212,7 @@ class MainActivity : ComponentActivity() {
                         Text("Local phone ${Store.localDeviceId(this@MainActivity)}")
                         Text("Optional explicit HTTPS sync sends event metadata and scores, never audio. Stop monitoring before syncing. Tokens stay in memory.")
                         OutlinedTextField(value=base,onValueChange={base=it},label={Text("HTTPS backend URL")},modifier=Modifier.fillMaxWidth())
-                        OutlinedTextField(value=token,onValueChange={token=it},label={Text("API token (not saved)")},visualTransformation=PasswordVisualTransformation(),modifier=Modifier.fillMaxWidth())
+                        OutlinedTextField(value=token,onValueChange={token=it},label={Text("API token (not saved)")},visualTransformation=PasswordVisualTransformation(),keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Password),singleLine=true,modifier=Modifier.fillMaxWidth())
                         OutlinedTextField(value=deviceId,onValueChange={deviceId=it},label={Text("Device ID; blank registers phone")},modifier=Modifier.fillMaxWidth())
                         Button(enabled=!syncing && !fileBusy.value && !MonitorService.active.value && !MonitorService.finishing.value,onClick={
                             syncing=true
@@ -261,23 +265,26 @@ class MainActivity : ComponentActivity() {
         var result by remember { mutableStateOf<RulePlan?>(null) }
         var planning by remember { mutableStateOf(false) }
         var consent by remember { mutableStateOf(false) }
+        val focus=LocalFocusManager.current
+        val keyboard=LocalSoftwareKeyboardController.current
         val scope=rememberCoroutineScope()
         val stopped=!MonitorService.active.value && !MonitorService.finishing.value
         Text("Describe a monitoring rule",style=MaterialTheme.typography.titleLarge)
         Text("OpenAI rule preview via your local/private backend. Only rule text and the supported catalog are sent to OpenAI; microphone audio stays on-device. The OpenAI key belongs in the backend environment, never this app. Provider retention policies apply even with storage disabled.")
-        OutlinedTextField(value=base,onValueChange={onConfig(it,token);result=null;consent=false},enabled=stopped && !planning,label={Text("Private HTTPS backend URL")},modifier=Modifier.fillMaxWidth())
-        OutlinedTextField(value=token,onValueChange={onConfig(base,it);result=null;consent=false},enabled=stopped && !planning,label={Text("AURA API token (not the OpenAI key)")},visualTransformation=PasswordVisualTransformation(),modifier=Modifier.fillMaxWidth())
+        OutlinedTextField(value=base,onValueChange={onConfig(it,token);result=null;consent=false},enabled=stopped && !planning,label={Text("Private HTTPS backend URL")},keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Uri),singleLine=true,modifier=Modifier.fillMaxWidth())
+        OutlinedTextField(value=token,onValueChange={onConfig(base,it);result=null;consent=false},enabled=stopped && !planning,label={Text("AURA API token (not the OpenAI key)")},visualTransformation=PasswordVisualTransformation(),keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Password),singleLine=true,modifier=Modifier.fillMaxWidth())
         OutlinedTextField(value=request,onValueChange={request=it;result=null},enabled=stopped && !planning,
             label={Text("What should AURA monitor?")},supportingText={Text("${request.length}/240 characters · preview before saving")},modifier=Modifier.fillMaxWidth())
         Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
             listOf("Barking example" to "Notify me when my dog barks for 2 seconds, with a cooldown of 30 seconds",
                 "Faucet example" to "Notify me when the tap is running for 3 seconds",
                 "Doorbell example" to "Notify me when the doorbell rings").forEach { (label,example) ->
-                OutlinedButton(enabled=stopped && !planning,onClick={request=example;result=null}) { Text(label) }
+                OutlinedButton(enabled=stopped && !planning,onClick={focus.clearFocus();keyboard?.hide();request=example;result=null}) { Text(label) }
             }
         }
         Row { Text("Allow sending this rule text to OpenAI through my backend",Modifier.weight(1f)); Checkbox(modifier=Modifier.semantics { contentDescription="Consent to OpenAI rule text sharing" },checked=consent,onCheckedChange={consent=it;result=null},enabled=stopped && !planning) }
         Button(enabled=stopped && !planning && consent && base.isNotBlank() && token.length>=24 && request.isNotBlank() && request.length<=240,onClick={
+            focus.clearFocus();keyboard?.hide()
             val submitted=request;planning=true;result=null
             scope.launch {
                 try {
