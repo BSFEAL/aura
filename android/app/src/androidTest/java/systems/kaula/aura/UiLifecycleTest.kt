@@ -35,11 +35,13 @@ class UiLifecycleTest {
         compose.onNodeWithText("Start monitoring",useUnmergedTree=true).performClick()
         compose.waitUntil(20000) { MonitorService.modelLoaded.value }
         val manager=compose.activity.getSystemService(NotificationManager::class.java)
-        assertTrue(manager.activeNotifications.any { it.id==1 })
+        compose.waitUntil(10000) { manager.activeNotifications.any { it.id==1 } }
+        assertTrue("Active service must publish the ongoing notification",manager.activeNotifications.any { it.id==1 })
         compose.onNodeWithText("Stop monitoring",useUnmergedTree=true).performClick()
         compose.waitUntil(20000) { !MonitorService.active.value }
         compose.onNodeWithText("Start monitoring",useUnmergedTree=true).assertIsDisplayed()
-        assertFalse(manager.activeNotifications.any { it.id==1 })
+        compose.waitUntil(10000) { manager.activeNotifications.none { it.id==1 } }
+        assertFalse("Stopped service notification must be removed",manager.activeNotifications.any { it.id==1 })
     }
     @Test fun ruleEditingAndEventRendering() {
         compose.onAllNodesWithText("Rules").onFirst().performScrollTo().performClick()

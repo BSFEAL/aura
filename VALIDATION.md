@@ -8,7 +8,7 @@ PR #1 verified head: `e97c5678e114398d859f26c917cdf1a5c27e5a4f`; merged main: `4
 
 - Backend/API/evaluation: 35 tests passed, including all unchanged v0.2 tests, additive migration, typed validation, provenance, idempotency, auth/device ownership and evaluation CLI smoke.
 - Web: 7 unit tests, strict TypeScript/production build and 2 real-API Playwright browser flows passed (including legacy RMS, typed sound rule, model-versus-simulation labels, escaped untrusted labels and 390px viewport).
-- Android: 13 Kotlin/JVM tests, debug APK/test-APK compilation and lint passed locally. Real native Android inference, migration and Start/Stop passed in the first emulator run; one navigation/history UI assertion failed and is being fixed before final CI validation.
+- Android: 13 Kotlin/JVM tests, debug APK/test-APK compilation and lint passed locally. The real native interpreter/bark pipeline, migration, permission denial and history UI have executed in emulator CI. Final all-five instrumentation result is recorded below once the bounded asynchronous notification-removal assertion completes.
 - Actual host LiteRT smoke: verified bundled model and checksums, `[15600]` float input, `[1,521]` finite float output, embedded label alignment, and the attributed bark fixture's Bark response. This is actual inference, not a fake classifier.
 - No physical-device results or calibration accuracy numbers are claimed.
 
@@ -19,7 +19,7 @@ Initial host smoke on Linux x86_64 / Python 3.12.14 / LiteRT 2.3.0, 2 native thr
 - Model initialization: 34.58 ms.
 - Mean inference: 1.37 ms; p95: 2.21 ms over 12 repeated fixture windows.
 
-These are development-host CPU timings, not Android, power, natural-event accuracy or thermal measurements. One repeated bark fixture response is an integration assertion, not a calibrated probability. The model asset is **4,126,810 bytes**. Final APK comparison and CI artifact links are recorded below after the final build.
+These are development-host CPU timings, not Android, power, natural-event accuracy or thermal measurements. One repeated bark fixture response is an integration assertion, not a calibrated probability. The model asset is **4,126,810 bytes**. Local v0.3 APK: **28,607,342 bytes**, versus **9,158,756 bytes** for v0.2: **+19,448,586 bytes**. The increase includes the 4.13 MB model, universal native TFLite runtimes and serialization/UI code. The model SHA inside the APK was verified, and the test-only bark fixture is absent from the user APK. CI artifact byte counts can vary slightly with signing/toolchain.
 
 Android runtime instrumentation exposes initialization time, session mean and last-128 p95 inference latency, processed windows, windows/s, failures, dropped windows, Java heap estimate, Android process PSS and foreground-service errors. One consumer and one waiting window bound concurrency. No battery consumption numbers are inferred from CI.
 
@@ -30,3 +30,5 @@ The full physical-phone matrix is PENDING in `docs/ANDROID_V03_VALIDATION.md`: s
 Calibration is incomplete: no representative held-out natural-event dataset has been evaluated. Provisional thresholds, aggregation semantics, source/licensing/fixture limitations and evaluation partitioning are documented. Android debug keys can differ between CI runs; installing over v0.2 requires the original signing certificate. CI validates the preference/schema migration, not arbitrary cross-key package upgrades.
 
 Nonblocking tool warnings can include newer AndroidX dependencies, Android analytics home configuration in this workspace, and a local Starlette/AnyIO alias deprecation. Lint errors and test failures are not suppressed.
+
+The offline WAV-manifest inference CLI was also exercised with a single attributed fixture wrapped as PCM16 WAV. This checks audio loading/resampling/model execution/report generation; it is not a calibration dataset. Dependency audits of backend requirements and web packages found no known vulnerabilities. Dropped-window diagnostics count inference-queue overflows, not unobservable audio-driver overruns.

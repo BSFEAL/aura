@@ -11,10 +11,14 @@ import org.junit.runner.RunWith
 class ModelIntegrationTest {
     @Test fun actualInterpreterBarkFixtureToTypedEpisode()=runBlocking {
         val instrumentation=InstrumentationRegistry.getInstrumentation()
+        val initStart=android.os.SystemClock.elapsedRealtime()
         val classifier=YamnetClassifier(instrumentation.targetContext)
+        val initMs=android.os.SystemClock.elapsedRealtime()-initStart
         try {
             val samples=instrumentation.context.assets.open("dog_bark_16k.pcm").use { Pcm.decode(it.readBytes()) }
             val result=classifier.classify(samples)
+            val metrics=InferenceStats().apply { add(result.inferenceMs) }
+            repeat(11) { metrics.add(classifier.classify(samples).inferenceMs) }
             assertEquals(521,result.scores.size)
             assertEquals("/m/05tny_",result.scores[70].classId)
             assertEquals("Bark",result.scores[70].label)
@@ -31,6 +35,10 @@ class ModelIntegrationTest {
             assertTrue(Store.events(instrumentation.targetContext).any { it.id==typed.id && it.provenance=="model_detected" })
             assertEquals(typed,EventCodec.decode(EventCodec.encode(typed)))
             println("AURA_REAL_INFERENCE model=${result.modelVersion} latency_ms=${result.inferenceMs} bark_raw=$raw")
+            println("AURA_MODEL_METRICS "+org.json.JSONObject().put("platform","Android API 30 x86_64 CI emulator (not a physical phone)")
+                .put("model_version",result.modelVersion).put("init_ms",initMs).put("windows",metrics.count)
+                .put("average_inference_ms",metrics.averageMs).put("p95_inference_ms",metrics.p95Ms)
+                .put("process_pss_kib",android.os.Debug.getPss()).put("calibrated",false).toString())
         } finally { classifier.close() }
     }
     @Test fun upgradeMigrationPreservesV02RulesAndHistory() {
