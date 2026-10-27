@@ -77,3 +77,12 @@ Implements an opt-in OpenAI Responses planner on the local backend with authenti
 Local results: **69 Python tests**, **32 Kotlin/JVM tests**, **7 web unit tests**, **3 real-API browser integration tests**, TypeScript/production build, Android debug/instrumentation APK compilation and lint passed. Pinned model integrity and actual host LiteRT inference passed. The provider protocol/browser tests inject explicitly test-only HTTP fixtures; they are not live OpenAI calls or semantic-accuracy measurements. The new Android consent/preview/disabled-save UI test requires the CI emulator; results and final APK link are recorded in the PR. Local APK **28,737,445 bytes**, version name 0.4.0 / code 6 (toolchain-dependent).
 
 Live OpenAI key/model availability, natural-language interpretation quality, private HTTPS phone connectivity, actual cloud latency/cost and new phone UI behavior are **PENDING** until the user's machine is configured and `tools/openai_rule_smoke.py --allow-send-text` is explicitly run. No real key was supplied to or embedded by this implementation. See `docs/OPENAI_RULE_BUILDER.md` for local process-environment setup and safe testing. Signing stays deferred. This work is stacked on PR #5; PRs #4/#5 must be merged/retargeted in order before this PR reaches main.
+
+
+## v0.4.1 Anthropic provider — 2026-10-27
+
+Adds explicit Anthropic/OpenAI selection with provider-specific consent in Android/web, official fixed Anthropic Messages API JSON structured output, server-only keys, shared independent typed validation and unchanged disabled save/local monitoring semantics. Changing providers clears previews/consent; provider errors never trigger fallback. No new dependencies, raw audio transfer or microphone actions. Android version 0.4.1 / code 7.
+
+Local results: **92 Python tests**, **33 Kotlin/JVM tests**, **7 web unit tests**, **4 real-API/SQLite Playwright browser tests**, TypeScript/production build, Android debug/instrumentation APK compilation and lint passed. Model integrity and actual host TFLite smoke passed (12 fixture windows). Provider transports are synthetic test-only fixtures, not live calls. New Android provider-consent reset and existing actual-interpreter integration tests run in CI; final results/artifact are recorded in PR #7.
+
+Live Anthropic account/model availability, interpretation quality, latency/cost, private phone connectivity and physical UI validation remain pending. No provider key was supplied or committed. See `docs/ANTHROPIC_RULE_BUILDER.md`. Signing provisioning remains deferred.
