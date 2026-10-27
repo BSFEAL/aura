@@ -87,11 +87,13 @@ class IntelligenceTest {
     @Test fun legacyRmsAndStateCleanup() {
         val rule=LocalRule(id="legacy",condition=Condition.Rms(.15,true))
         val d=TemporalDetector(rule)
-        assertNull(d.update(.15f,0,0).started)
+        assertNull(d.update(.15f,0,0,rms=.15).started)
         assertNotNull(d.update(.3f,100,100).started)
         var now=100L
         while(now<30100) { now+=1000;d.update(.3f,now,now) }
         assertNotNull(d.update(.3f,30200,30200).started)
+        val exact=TemporalDetector(rule)
+        assertNotNull(exact.update(.15f,0,0,rms=.150000001).started)
         val session=SoundSession(null)
         session.evaluate(rule,.3f,0,0,.3)
         assertEquals(1,session.trackedRules)

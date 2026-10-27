@@ -18,6 +18,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.*
@@ -79,8 +81,9 @@ class MainActivity : ComponentActivity() {
                 when(tab) {
                     "Dashboard" -> {
                         Text("Stay aware. Stay in control.",style=MaterialTheme.typography.headlineMedium)
-                        val active=MonitorService.live.value.any { (id,update)-> update.phase==Phase.ACTIVE && rules.any { it.id==id && it.condition is Condition.Audio } }
-                        val best=MonitorService.live.value.filterKeys { id->rules.any { it.id==id && it.condition is Condition.Audio } }.maxByOrNull { it.value.smoothed }
+                        val evidence=MonitorService.live.value.filterKeys { id->rules.any { it.id==id && it.condition is Condition.Audio } }
+                        val best=evidence.filterValues { it.phase==Phase.ACTIVE }.maxByOrNull { it.value.smoothed } ?: evidence.maxByOrNull { it.value.smoothed }
+                        val active=best?.value?.phase==Phase.ACTIVE
                         Text(if(active && best!=null) "Possible ${rules.find { it.id==best.key }?.label}" else "Unknown / unconfirmed")
                         best?.value?.let { Text("Raw score %.3f · smoothed score %.3f".format(it.raw,it.smoothed)) }
                         Text("Last rule-confirmed episode: ${events.firstOrNull()?.let { it.label+" · "+date(it.startMs) } ?: "None"}")
@@ -122,7 +125,7 @@ class MainActivity : ComponentActivity() {
                         Text("${ModelSpec.VERSION} · 4,126,810-byte asset · 15,600-sample window · 521 classes")
                         Text(MonitorService.stats.value.ifBlank { "No session measurements yet. 16 kHz mono PCM16 input. CPU-only inference, two native threads." })
                         OutlinedTextField(value=cadence,onValueChange={cadence=it},label={Text("Inference interval ms (250–2000)")},modifier=Modifier.fillMaxWidth())
-                        Button(enabled=!MonitorService.active.value,onClick={
+                        Button(enabled=!MonitorService.active.value && !MonitorService.finishing.value,onClick={
                             val ms=cadence.toIntOrNull()
                             if(ms==null || ms !in 250..2000) message="Cadence must be 250–2000 ms"
                             else { Store.setting(this@MainActivity,"cadence",ms.toString()); message="Cadence saved for the next session" }
@@ -147,7 +150,7 @@ class MainActivity : ComponentActivity() {
                         Text("API rules only take effect after sync. Their local edits/toggles last until the next sync; manage remote rules in the web dashboard. Registration never activates the microphone.")
                     }
                     "Alerts" -> {
-                        Row { Text("Threshold and possible-sound alerts",Modifier.weight(1f)); Switch(checked=alerts,onCheckedChange={alerts=it;Store.notifications(this@MainActivity,it)}) }
+                        Row { Text("Threshold and possible-sound alerts",Modifier.weight(1f)); Switch(modifier=Modifier.semantics { contentDescription="Threshold and possible-sound alerts" },checked=alerts,onCheckedChange={alerts=it;Store.notifications(this@MainActivity,it)}) }
                         Text("Alerts are experimental and never describe an uncertain model output as a confirmed real-world event. The active microphone notification stays visible. Disabling its channel stops monitoring. No emergency calls.")
                     }
                 }
@@ -185,8 +188,8 @@ class MainActivity : ComponentActivity() {
             Text("${if(MonitorService.modelLoaded.value) "Classifier available" else "Classifier inactive/unavailable until monitoring starts"}. Scores are uncalibrated. Doorbell means a sound, not a door opening.")
         }
         OutlinedTextField(value=cooldown,onValueChange={cooldown=it},label={Text("Cooldown ms (0–3600000)")},modifier=Modifier.fillMaxWidth())
-        Row { Text("Notify for this rule",Modifier.weight(1f)); Switch(checked=notify,onCheckedChange={notify=it}) }
-        Button(enabled=!MonitorService.active.value,onClick={
+        Row { Text("Notify for this rule",Modifier.weight(1f)); Switch(modifier=Modifier.semantics { contentDescription="Notify for this rule" },checked=notify,onCheckedChange={notify=it}) }
+        Button(enabled=!MonitorService.active.value && !MonitorService.finishing.value,onClick={
             try {
                 val condition=if(eventType=="rms_above") Condition.Rms(value.toDouble(),(editing?.condition as? Condition.Rms)?.legacyRepeat ?: false) else Condition.Audio(eventType,value.toFloat(),release.toFloat(),persistence.toLong(),gap.toLong(),alpha.toFloat(),classId=classId)
                 val rule=LocalRule(id=editing?.id ?: UUID.randomUUID().toString(),enabled=editing?.enabled ?: true,source=editing?.source ?: Source(Store.localDeviceId(this@MainActivity)),condition=condition,policy=Policy(cooldown.toLong(),notify),remote=editing?.remote ?: false).validate()
@@ -196,7 +199,7 @@ class MainActivity : ComponentActivity() {
         if(editing!=null) TextButton(onClick={editing=null}) { Text("Cancel edit") }
         Text("Legacy RMS language input")
         OutlinedTextField(value=natural,onValueChange={natural=it},label={Text("Natural language RMS rule")},modifier=Modifier.fillMaxWidth())
-        Button(enabled=!MonitorService.active.value,onClick={
+        Button(enabled=!MonitorService.active.value && !MonitorService.finishing.value,onClick={
             val threshold=Signal.parseRule(natural)
             if(threshold==null) onMessage("Supported: Notify me when sound level is above 0.15")
             else try { Store.saveRules(this@MainActivity,rules+LocalRule(id=UUID.randomUUID().toString(),source=Source(Store.localDeviceId(this@MainActivity)),condition=Condition.Rms(threshold,true),text=natural));onMessage("RMS rule saved") } catch(e: Exception) { onMessage(e.message ?: "Could not save") }
@@ -206,8 +209,8 @@ class MainActivity : ComponentActivity() {
             Text("Schema ${rule.schemaVersion} · ${if(rule.remote) "API download" else "local"}",style=MaterialTheme.typography.labelSmall)
             rule.unavailableReason(MonitorService.modelLoaded.value)?.let { Text(it,color=MaterialTheme.colorScheme.secondary) }
             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                Switch(checked=rule.enabled,onCheckedChange={enabled->Store.saveRules(this@MainActivity,rules.map { if(it.id==rule.id) it.copy(enabled=enabled) else it })})
-                TextButton(enabled=!MonitorService.active.value,onClick={
+                Switch(modifier=Modifier.semantics { contentDescription="Enable ${rule.label}" },checked=rule.enabled,onCheckedChange={enabled->Store.saveRules(this@MainActivity,rules.map { if(it.id==rule.id) it.copy(enabled=enabled) else it })})
+                TextButton(enabled=!MonitorService.active.value && !MonitorService.finishing.value,onClick={
                     editing=rule;cooldown=rule.policy.cooldownMs.toString();notify=rule.policy.notify
                     when(val c=rule.condition) {
                         is Condition.Rms -> { eventType="rms_above";value=c.threshold.toString() }

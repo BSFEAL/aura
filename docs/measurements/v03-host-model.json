@@ -1,0 +1,14 @@
+{
+  "model_version": "yamnet-tflite-1-10c95ea3",
+  "fixture_sha256": "3aad504291e70b99b2af4c6723d83d3a535ff3d166ff3781cb82e50f3f47b404",
+  "platform": "Linux-6.18.55-x86_64-with-glibc2.41",
+  "python": "3.12.14",
+  "init_ms": 34.57625700048084,
+  "average_inference_ms": 1.369610416835106,
+  "p95_inference_ms": 2.213117100200179,
+  "windows": 12,
+  "bark_score": 0.73828125,
+  "model_bytes": 4126810,
+  "calibrated": false,
+  "interpretation": "Fixture smoke test only; host CPU timings, not Android or accuracy measurements"
+}

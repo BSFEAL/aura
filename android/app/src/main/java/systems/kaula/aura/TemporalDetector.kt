@@ -45,7 +45,7 @@ class TemporalDetector(private val rule: LocalRule, private val newId: ()->Strin
         phase=Phase.IDLE; smooth=null; previous=null; cooldownUntil=0; id=""; sum=0.0; count=0; belowEvidence=false; winningClass=null
         return ended
     }
-    fun update(raw: Float, mono: Long, wall: Long, rms: Double=0.0, classId: String?=null): DetectorUpdate {
+    fun update(raw: Float, mono: Long, wall: Long, rms: Double=raw.toDouble(), classId: String?=null): DetectorUpdate {
         require(raw.isFinite() && raw in 0f..1f && rms.isFinite() && rms in 0.0..1.0)
         val discontinuity=previous?.let { mono<it || mono-it>10000 } ?: false
         val interrupted=if(discontinuity) reset(mono,"clock_or_capture_gap") else null
@@ -61,19 +61,21 @@ class TemporalDetector(private val rule: LocalRule, private val newId: ()->Strin
             }
         }
         val smoothed=(smooth?.let { alpha*raw+(1-alpha)*it } ?: raw).also { smooth=it }
+        val qualifies=if(c!=null) smoothed>=on else rms>(rule.condition as Condition.Rms).threshold
+        val supports=if(c!=null) smoothed>=off else rms>(rule.condition as Condition.Rms).threshold
         if(phase==Phase.COOLDOWN && mono>=cooldownUntil) phase=Phase.IDLE
-        if(phase==Phase.IDLE && smoothed>=on && (c!=null || raw>on)) {
+        if(phase==Phase.IDLE && qualifies) {
             phase=Phase.CANDIDATE; candidate=mono; anchorWall=wall; lastEvidence=mono
             peak=raw; sum=0.0; count=0; winningClass=classId; belowEvidence=false
         }
         if(phase==Phase.CANDIDATE) {
-            belowEvidence=!(smoothed>=on && (c!=null || raw>on))
+            belowEvidence=!(qualifies)
             if(!belowEvidence) lastEvidence=mono
             if(mono-lastEvidence>gap) { phase=Phase.IDLE; candidate=mono }
             else {
                 if(raw>=peak && classId!=null) winningClass=classId
                 peak=maxOf(peak,raw); sum+=raw; count++
-                if(smoothed>=on && mono-candidate>=persistence && mono>=cooldownUntil) {
+                if(qualifies && mono-candidate>=persistence && mono>=cooldownUntil) {
                     phase=Phase.ACTIVE; activated=mono; cooldownUntil=mono+rule.policy.cooldownMs; id=newId()
                     return DetectorUpdate(phase,raw,smoothed,mono-candidate,started=episode(null,"active"),ended=interrupted)
                 }
@@ -81,7 +83,7 @@ class TemporalDetector(private val rule: LocalRule, private val newId: ()->Strin
         } else if(phase==Phase.ACTIVE) {
             if(raw>=peak && classId!=null) winningClass=classId
             peak=maxOf(peak,raw); sum+=raw; count++
-            belowEvidence=!(smoothed>=off && (c!=null || raw>on))
+            belowEvidence=!(supports)
             if(!belowEvidence) lastEvidence=mono
             val legacy=(rule.condition as? Condition.Rms)?.legacyRepeat==true
             if(mono-lastEvidence>gap || (legacy && mono-activated>=rule.policy.cooldownMs)) {

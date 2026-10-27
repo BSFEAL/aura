@@ -33,7 +33,7 @@ class AudioCondition(Strict):
     type: Literal['audio_event'] = 'audio_event'
     event_type: EventType
     class_id: str | None = Field(default=None, max_length=80)
-    min_score: Score = .7
+    min_score: float = Field(default=.7, ge=.01, le=1, allow_inf_nan=False, strict=True)
     release_score: Score = .5
     min_duration_ms: int = Field(default=3000, ge=0, le=60000, strict=True)
     max_gap_ms: int = Field(default=1000, ge=0, le=10000, strict=True)

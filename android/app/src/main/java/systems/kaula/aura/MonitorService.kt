@@ -84,13 +84,14 @@ class MonitorService : Service() {
                 val initMs=SystemClock.elapsedRealtime()-initStart
                 withContext(Dispatchers.Main) { stats.value="16,000 Hz mono PCM16 · model init $initMs ms · ${if(classifier==null) "unavailable, RMS-only" else "loaded"} · 0 processed windows" }
                 val decision=SoundSession(classifier); engine=decision; session=decision
-                withContext(Dispatchers.Main) { modelLoaded.value=classifier!=null; status.value=if(classifier!=null) "Active" else "Degraded" }
+                withContext(Dispatchers.Main) { modelLoaded.value=classifier!=null }
                 val minimum=AudioRecord.getMinBufferSize(ModelSpec.SAMPLE_RATE,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT)
                 check(minimum>0) { "Unsupported microphone format" }
                 val audio=AudioRecord(MediaRecorder.AudioSource.MIC,ModelSpec.SAMPLE_RATE,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT,maxOf(minimum,8192))
                 recorder=audio
-                check(audio.state==AudioRecord.STATE_INITIALIZED && audio.sampleRate==ModelSpec.SAMPLE_RATE) { "Microphone unavailable or wrong sample rate" }
+                check(audio.state==AudioRecord.STATE_INITIALIZED && audio.sampleRate==ModelSpec.SAMPLE_RATE && audio.channelCount==1 && audio.audioFormat==AudioFormat.ENCODING_PCM_16BIT) { "Microphone unavailable or wrong sample rate" }
                 audio.startRecording(); check(audio.recordingState==AudioRecord.RECORDSTATE_RECORDING)
+                withContext(Dispatchers.Main) { status.value=if(classifier!=null) "Active" else "Degraded" }
                 // One inference consumer, one waiting window, no overlapping native calls. New windows are dropped when full.
                 inference=launch(Dispatchers.Default) {
                     for(window in queue) {

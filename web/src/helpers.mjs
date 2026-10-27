@@ -10,7 +10,7 @@ export function eventTitle(event) { return event.event_type && event.event_type 
 export function typedRule(deviceId, type, threshold, persistence, gap, cooldown, release = .5, legacyRepeat = false, classId = null) {
   if (!deviceId || !Number.isFinite(threshold) || threshold <= 0 || threshold > 1) throw new Error('Device and a finite threshold above 0 and at most 1 required');
   if (![persistence,gap,cooldown].every(Number.isInteger) || persistence < 0 || persistence > 60000 || gap < 0 || gap > 10000 || cooldown < 0 || cooldown > 3600000) throw new Error('Invalid duration, gap or cooldown');
-  if (type !== 'rms_above' && (!Object.hasOwn(soundTypes,type) || !Number.isFinite(release) || release < 0 || release >= threshold)) throw new Error('Unsupported event or invalid release score');
+  if (type !== 'rms_above' && (threshold < .01 || !Object.hasOwn(soundTypes,type) || !Number.isFinite(release) || release < 0 || release >= threshold)) throw new Error('Unsupported event or invalid release score');
   if(classId !== null && !(classMap[type] ?? []).includes(classId)) throw new Error('Class ID does not belong to event');
   return {schema_version:2, enabled:true, source:{device_id:deviceId,modality:'audio'},condition:type==='rms_above'?{type,threshold,legacy_repeat:legacyRepeat}:{type:'audio_event',event_type:type,class_id:classId,min_score:threshold,release_score:release,min_duration_ms:persistence,max_gap_ms:gap,ema_alpha:.5,model_version:'yamnet-tflite-1-10c95ea3',mapping_version:'aura-audioset-v1',threshold_version:'provisional-v1'},policy:{cooldown_ms:cooldown,notify:true},text:''};
 }
