@@ -6,6 +6,7 @@ import java.nio.charset.CodingErrorAction
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.*
 
 @Serializable data class LocalBackup(
     val format: String = "aura-local-metadata",
@@ -72,6 +73,14 @@ object BackupCodec {
             }
         }
         require(!quoted && depth == 0) { "Invalid backup JSON" }
+        val root=RuleCodec.json.parseToJsonElement(text).jsonObject
+        require(root["format"]?.jsonPrimitive?.content == "aura-local-metadata" &&
+            root["format_version"]?.jsonPrimitive?.let { !it.isString && it.intOrNull == 1 } == true) { "Explicit AURA backup format/version required" }
+        listOf("rules", "events").forEach { key ->
+            require(root.getValue(key).jsonArray.all { record ->
+                record.jsonObject["schema_version"]?.jsonPrimitive?.let { !it.isString && it.intOrNull == 2 } == true
+            }) { "Explicit schema version 2 required for backup records" }
+        }
         return validate(RuleCodec.json.decodeFromString<LocalBackup>(text))
     }
     private fun InputStream.readBytesBounded(): ByteArray {

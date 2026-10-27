@@ -51,6 +51,9 @@ class BackupTest {
     @Test fun malformedOversizedDeepAndUnknownInputsAreRejected() {
         val json=String(BackupCodec.encode(backup()))
         assertThrows(IllegalArgumentException::class.java) { read(json.replace("\"format_version\":1","\"format_version\":2")) }
+        assertThrows(IllegalArgumentException::class.java) { read(json.replace("\"format_version\":1,", "")) }
+        assertThrows(IllegalArgumentException::class.java) { read(json.replace("\"format\":\"aura-local-metadata\",", "")) }
+        assertThrows(IllegalArgumentException::class.java) { read(json.replace("\"schema_version\":2,", "")) }
         assertThrows(IllegalArgumentException::class.java) { read(json.dropLast(1)+",\"api_token\":\"must-not-import\"}") }
         assertThrows(IllegalArgumentException::class.java) { read("[".repeat(33)+"]".repeat(33)) }
         assertThrows(IllegalArgumentException::class.java) { BackupCodec.read(ByteArrayInputStream(ByteArray(BackupCodec.MAX_BYTES+1))) }
