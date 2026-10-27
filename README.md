@@ -1,29 +1,39 @@
-# AURA v0.2
+# AURA v0.3 — Sound Intelligence
 
-**AURA by kaula.systems** is a local-first ambient monitoring platform. This release delivers one real monitoring capability: explicitly activated Android microphone sampling and local, uncalibrated RMS amplitude threshold rules. The monorepo includes a native Kotlin / Jetpack Compose app, responsive TypeScript dashboard, and authenticated FastAPI / SQLite API.
+**AURA by kaula.systems** is a local-first ambient intelligence platform. This experimental release adds a real, bundled **on-device YAMNet TFLite classifier**, typed rules, temporal sound episodes and Android diagnostics to the verified v0.2 RMS/Compose/FastAPI/SQLite/TypeScript foundation.
 
-RMS is normalized amplitude (0–1), **not calibrated decibels and not sound classification**. It does not detect rain, speech, alarms, or particular sounds. Multimodal classification and hardware integrations are future work. AURA never places autonomous emergency calls.
+Supported curated model classes: **dog barking, alarm or siren, rain, running water/faucet, knocking and doorbell sound**. Class mappings and provenance are pinned in [MODEL_CARD.md](docs/MODEL_CARD.md). A doorbell sound is not evidence that a door opened. Model scores are **uncalibrated**, thresholds are **provisional**, and rule-confirmed episodes are **not independently verified real-world events**. AURA is not a security, fire, medical or emergency detector. It never places emergency calls.
 
-## Phone-only setup (no computer or backend required)
+## Phone-only setup
 
-1. Open [Android build runs](https://github.com/BSFEAL/aura/actions/workflows/android.yml) in your phone's browser. Choose a successful run for the feature branch or merged main. Sign into GitHub to download its `aura-v0.2-debug-apk` artifact. Artifacts expire after 14 days; rerun the workflow if needed.
-2. Unzip the artifact with Android Files, then open `app-debug.apk`. Allow “Install unknown apps” for that browser/file manager only if you trust this repository and build. Android 8.0+ is required. This is a development APK, not a signed production release.
-3. Open AURA → **Rules**. Add `Notify me when sound level is above 0.15`. You can also use `Notify me when RMS above 0.15`. Valid thresholds are greater than 0 and at most 1.
-4. Go to **Dashboard** → **Start monitoring**. Grant microphone and notification permissions. Then tap **Start monitoring again**; permission approval alone does not start recording. Android notifications must be enabled.
-5. Speak or make a sound near the phone and observe the RMS indicator. Adjust the threshold to your environment. A threshold event appears in **Events**, with a local notification if alerts are enabled. There is a 30-second cooldown per rule. Quiet or muted microphones may never exceed your threshold.
-6. Tap **Stop monitoring** in the app or persistent “AURA microphone active” notification. Removing the app task also stops monitoring. Monitoring never starts on boot and does not automatically restart after process termination. Android may stop it for battery or privacy reasons.
+1. On your phone, open [Android Actions runs](https://github.com/BSFEAL/aura/actions/workflows/android.yml). Choose a successful v0.3 run, sign into GitHub and download `aura-v0.3-debug-apk`. Unzip with Android Files and open `app-debug.apk`. Android 8+ is required. Allow installation from that file manager only if you trust this build. Artifacts expire after 14 days; rerun the workflow if necessary.
+2. For an **upgrade**, keep the same application ID and signing certificate. Debug keys from different CI runs may differ. Do not uninstall to test data preservation. Build both versions locally with the same retained key if the original installed APK's key is unavailable. Existing preference/database migration is tested; cross-key Android upgrade is not possible.
+3. Open **Rules**. Keep/add an RMS rule (e.g. threshold `0.15`), or select a curated sound type. Set activation/release scores, persistence, gap, EMA and cooldown. Defaults for sound rules: `0.70 / 0.50`, `3000 ms`, `1000 ms`, `0.5`, `30000 ms`. They are starting points, not calibrated accuracy claims. Short barks/knocks/doorbells may need shorter persistence; changing it changes false-positive behavior.
+4. **Dashboard → Start monitoring** requests microphone and notification permission. Granting permission alone does not activate capture: tap **Start monitoring again**. Model loading occurs once per explicit session on a worker thread. Status moves through Starting → Active, or visibly Degraded (RMS only) if the model fails.
+5. **Live** displays top raw model outputs and per-rule smoothed scores, persistence and state. **Events** records typed episodes, class IDs, timestamps/duration, peak/mean scores, model/threshold version, device, provenance and notification status. Unknown/unconfirmed is expected when evidence does not meet an enabled rule. A per-class ID filter can apply a distinct threshold to a constituent AudioSet class.
+6. **Stop monitoring** in the app or ongoing microphone notification ends capture. Removing the task also stops the service. There is no boot receiver, sticky restart or hidden activation. Permission loss, capture errors, Android silencing or disabling the active notification stops capture. Alert-only channel settings can suppress alerts while preserving history.
+7. **Diagnostics** shows model status, 16 kHz sample rate, measured initialization/inference timings, processed/dropped windows and approximate process memory. Change inference cadence (250–2000 ms; default 500 ms) only between sessions. Faster inference costs more processing; slower inference can miss brief events. No physical-device battery measurements are claimed.
 
-Rules and the most recent 200 events remain in app-private storage. No raw audio is stored or transmitted. **Alerts** controls threshold notifications; it does not remove the mandatory active-monitoring notification. Revoked permissions, microphone contention or recording errors stop monitoring and surface an error. Use Android settings to restore denied permissions.
+The model is already in the APK; airplane-mode local operation needs no account/server/download. Capture uses 16 kHz mono PCM16, normalized /32768, a bounded 15,600-sample rolling window, and one inference consumer with at most one queued window. No raw microphone audio is saved, logged or uploaded. No RMS noise gate discards quiet inputs. Inference exceptions clear sound evidence and preserve explicit RMS-only monitoring.
 
-## Run the API and dashboard locally
+## Rules, episodes and storage
 
-Prerequisites: Python 3.12+, Node 22+, npm. From repository root:
+Schema v2 supports `rms_above` and `audio_event` only, with an audio/device source and explicit notification/cooldown policy. Unsupported versions are shown as unavailable, not reinterpreted. Rule creation/download never activates a microphone. Rules can be edited, toggled and deleted; editing/creating requires capture stopped. Downloaded-rule edits are local until the next explicit sync; use the web dashboard to edit the server copy.
+
+Sound rules pin model, mapping and threshold versions. Event mappings use max score across documented classes or a selected constituent class. The deterministic EMA/hysteresis/persistence/gap/cooldown state machine suppresses duplicate notifications for continuous episodes. [AUDIO_EVALUATION.md](docs/AUDIO_EVALUATION.md) defines exact transitions and timestamp semantics. A new sound rule does not identify a physical emergency.
+
+v0.2 RMS rules migrate without losing IDs, enabled flags or text, with explicit `legacy_repeat=true` to preserve immediate strict-amplitude and repeating-cooldown semantics. Old event history is retained as `device_reported`, with unknown legacy notification status. App-private originals are backed up during migration. Up to 128 rules and the latest 200 events are evaluated/stored. Corrupt/unsupported data is retained in quarantine with a visible warning; a legacy installation above 128 rules retains originals while evaluating only the first 128. Interrupted active episodes on relaunch use the last persisted evidence duration, with `process_terminated` status; the true process-kill end is unknown.
+
+Stored metadata: rule configuration/device IDs, event label/class ID, start/end/duration, raw peak/mean scores, RMS, model/mapping/threshold versions, notification status, provenance, bounded history and explicit-sync bookkeeping. Model outputs are metadata, not proof. Android backups/device transfer are disabled by app configuration.
+
+## Local API and web setup
+
+Prerequisites: Python 3.12+, Node 22+, npm. From the repository root:
 
 ```bash
 python -m venv .venv
 . .venv/bin/activate
 pip install -r backend/requirements.txt
-# Generate a private token; copy it from your own terminal into the dashboard.
 export AURA_API_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
 printf '%s\n' "$AURA_API_TOKEN"
 cd backend
@@ -38,58 +48,53 @@ npm ci
 npm run dev
 ```
 
-Open `http://127.0.0.1:5173` and enter your token. Vite proxies `/api` to loopback port 8000. The dashboard holds the token in memory only. Refreshing locks it. Register a device, create a rule, and generate a labeled simulation or submit a device amplitude event. Click Refresh to load new events; there is no live polling. Registering or enabling a rule never remotely activates a microphone. Device registration is not proof that a device is online.
+Open `http://127.0.0.1:5173` and enter the token. It stays in memory; refresh locks the dashboard. Register a device, create legacy RMS or typed sound rules, edit/toggle/delete rules, and view labeled simulations or device/model reports. Click Refresh to fetch new data. Registration does not prove online status and never starts a sensor.
 
-The backend refuses all data endpoints if `AURA_API_TOKEN` is missing or shorter than 24 characters. SQLite defaults to `backend/aura.db`; set `AURA_DB` to another writable path if needed. Restarting retains the data. Deleting a device cascades to its API rules/events, not phone-local history. Keep the database private and back it up while the API is stopped.
+All `/api/*` routes require a bearer token of at least 24 characters. SQLite defaults to `backend/aura.db`; override `AURA_DB` if needed. v0.3 performs an additive, transactional migration (spec/metadata columns and a device/client-event idempotency index); it does not replace the database or delete v0.2 rows. Back up the database with the API stopped before upgrades. API/client contracts reject unknown fields, unsupported class IDs/versions, nonfinite/out-of-range scores, incompatible class mappings and inconsistent/unzoned timestamps. Shared-token authentication is for one trusted installation; client confidence is always marked `evidence_verified=false`.
 
-**Do not expose the development API or Vite server publicly.** For optional phone sync, use a private network with a trusted HTTPS reverse proxy, access controls and a valid certificate in front of the authenticated loopback API. Do not port-forward an unauthenticated service. Android rejects cleartext HTTP and does not bypass certificate checks. Production hosting, identity management, rate limiting and TLS provisioning are outside this development release.
+**Keep development servers on loopback; do not expose them publicly.** For optional Android sync, use a private network and trusted HTTPS reverse proxy in front of the authenticated loopback API. Android rejects cleartext HTTP, redirects and invalid certificates. Production identity/TLS provisioning, remote activation and cloud inference are outside this release.
 
-## Optional Android → API → web flow
+## Optional explicit sync
 
-1. Set up private HTTPS access as above. Stop phone monitoring before syncing.
-2. In Android **Devices**, enter the HTTPS backend URL, API token, and an existing dashboard device ID, or leave ID blank to register this phone. The token is not persisted.
-3. Tap **Sync rules & events**. The phone uploads amplitude event history and downloads API rules for its device. It keeps local rules. API rule changes take effect only after another explicit sync. Toggling a downloaded rule locally lasts until the next sync.
-4. Start monitoring on the phone. Stop it and tap Sync when you want to upload new event reports. Refresh the web dashboard to view them.
+Stop capture and wait for cleanup. In Android **Devices**, supply the trusted HTTPS backend URL, token and dashboard device ID, or leave ID blank to register. Tap **Sync rules & events**. Tokens are not saved. No network activity occurs in monitoring.
 
-Local rules are created on-device; dashboard rules are downloaded. Sync uploads historical local events as device-level reports (without API rule association) so deleted or disabled remote rules do not invalidate phone history. API event timestamps currently represent ingestion time; original timestamps remain on the phone. Sync remembers uploaded local IDs per backend/device; a response lost after server commit can cause a duplicate on retry. It is not an exactly-once delivery queue. Switching API identity/URL creates a separate sync history. This is deliberately manual, not continuous cloud monitoring.
+Sync downloads schema-v2 rules and uploads **completed/interrupted event metadata only**, preserving original timestamps, score/model/threshold versions and provenance. Historical uploads omit API `rule_id` so a deleted/disabled remote rule cannot invalidate phone history; the original rule association remains locally. The server deduplicates `device_id + client_event_id` and rejects conflicting retries. Existing local sync bookkeeping is retained. Events previously uploaded by v0.2 remain legacy RMS records; v0.3 does not retroactively claim classifications for them.
 
-## API contract
+An interrupted upload can be retried explicitly. A 200-event rolling history is not an unlimited delivery queue. API and Android stores are separate; deleting an API device cascades its server rules/events, not phone-local history. Local rules are not automatically uploaded.
 
-OpenAPI: `http://127.0.0.1:8000/docs` or `/openapi.json` (schemas only). Every `/api/*` route requires `Authorization: Bearer <AURA_API_TOKEN>`. Pydantic models reject unknown fields and invalid ranges; errors use FastAPI's `detail` envelope.
+## API contracts
 
-| Endpoint | Behavior |
+OpenAPI schemas/UI: `http://127.0.0.1:8000/openapi.json` and `/docs` (data routes require auth). v0.2 `/api/devices`, `/api/rules`, `/api/events`, `/api/simulate`, `/api/status` continue to work. Legacy clients only receive legacy rules and RMS event representations, never reinterpret sound rules as RMS.
+
+| v2 endpoint | Contract |
 | --- | --- |
-| `GET /api/status` | Counts and device-controlled monitoring description |
-| `GET/POST /api/devices` | List/register `{name, kind: "phone" or "sensor"}` |
-| `DELETE /api/devices/{id}` | Remove device and associated data |
-| `POST /api/rules/validate` | Validate `{text}` against supported natural language grammar |
-| `GET/POST /api/rules` | List/create `{device_id, text}` |
-| `PATCH /api/rules/{id}` | Set `{enabled: true/false}` |
-| `GET /api/events?limit=100` | Newest first; limit 1–500 |
-| `POST /api/events` | Submit `{device_id, rms, rule_id?}`; optional rule must match device, be enabled, and exceed threshold |
-| `POST /api/simulate` | Same payload, always stored with `simulated: true` |
+| `GET/POST /api/v2/rules` | Typed source/condition/policy; strict schema_version=2 |
+| `POST /api/v2/rules/validate` | Validate full typed input without activation |
+| `PUT/PATCH/DELETE /api/v2/rules/{id}` | Edit, enable/disable, delete; device ownership remains fixed |
+| `GET /api/v2/events?limit=100` | Typed and migrated legacy history, newest ingestion first; limit 1–500 |
+| `POST /api/v2/events` | Device/client ID, event type/class, provenance, start/end/duration and optional model metadata |
+| `POST /api/v2/simulate` | Same strict input, forced simulated provenance |
 
-A sensor integration can register `kind: "sensor"` and submit normalized amplitude events using these contracts. No physical sensor adapters or other modalities ship in v0.2. The simulated generator is an explicit one-shot API operation and dashboard control; it never pretends to be a real sensor.
+For sound events, model/mapping/threshold version and finite `mean_score <= peak_score` are required. `class_id` must belong to `event_type`. Timestamps require timezones; end-start must agree with duration. API checks are structural, not independent verification of the sound. Simulations remain visibly simulated. v0.2 natural-language RMS input is retained as a constrained grammar, not a language-model interpretation service.
 
-## Development and checks
+## Checks and artifacts
 
 ```bash
 cd backend && ../.venv/bin/python -m pytest -q
 cd ../web && npm ci && npm test && npm run build
 npx playwright install chromium && npm run test:e2e
-cd ../android && ./gradlew testDebugUnitTest assembleDebug lintDebug
+cd ../android && ./gradlew testDebugUnitTest assembleDebug assembleDebugAndroidTest lintDebug
+# With an Android emulator already running:
+./gradlew connectedDebugAndroidTest
+cd ..
+.venv/bin/python tools/verify_model.py
+.venv/bin/pip install -r tools/requirements-model.txt
+.venv/bin/python tools/model_smoke.py --report /tmp/model-smoke.json
+.venv/bin/python tools/evaluate_audio.py --scores evaluation/fixtures/synthetic_scores.json --report /tmp/evaluation.json
 ```
 
-Android builds require JDK 17, Android SDK platform 35 and Gradle 8.9 (wrapper included). Open `android/` in Android Studio, let it install the SDK and run the app on a physical phone. The debug APK is at `android/app/build/outputs/apk/debug/app-debug.apk`. CI runs Python tests, web unit tests/type checking/production build, and Android JVM tests/debug build/lint. APK, web bundle and Android reports are downloadable workflow artifacts.
+Android: JDK 17, Gradle 8.9 (checksummed wrapper), AGP 8.7.3, Kotlin 2.0.21, SDK 35, TFLite 2.17.0. Open `android/` in Android Studio or use the wrapper. Debug APK: `android/app/build/outputs/apk/debug/app-debug.apk`. Host model verification pins LiteRT/NumPy/SciPy separately. Model assets and all direct build dependencies are version-pinned; CI runner images/transitive dependencies are not a bit-for-bit reproducible toolchain. Experimental debug APK distribution is not production signing.
 
-Backend tests cover auth, persistence, rule validation, amplitude ranges, device ownership, enabled-rule checks and cascade deletion. Web unit tests cover safe rendering and simulation provenance. A Playwright integration test runs against the real API and covers registration, rule creation/toggling, simulated events, dashboard locking and mobile layout. Android JVM tests cover RMS, supported grammar and per-rule cooldown. Physical-device microphone behavior, OEM battery policy and notification permission flows require manual verification; JVM tests do not exercise Android hardware.
+Existing Python/web/Android workflows remain, with model integrity/real-inference smoke and emulator integration added. CI publishes `aura-v0.3-debug-apk`, web bundle, model smoke metrics, lint/JVM reports and emulator reports. Failures propagate. No real microphone hardware is required for emulator inference.
 
-## Layout
-
-- `android/` — native Compose UI, opt-in foreground service, local rules/events, manual authenticated sync
-- `backend/` — typed FastAPI contracts, SQLite persistence, rule validator, simulation endpoint
-- `web/` — responsive navy/cyan/indigo dashboard; no external runtime fonts or scripts
-- `.github/workflows/` — independent Python, web and Android checks
-- `AGENTS.md` — contributor guardrails
-
-This is an amplitude-monitoring foundation for a multimodal platform, not a medical, security, or emergency system. Shared-token authentication is intended for a single trusted local installation; per-user authorization, remote microphone control, background sync, push notifications and production distribution are not implemented.
+See [VALIDATION.md](VALIDATION.md) for executed results/measurements, [MODEL_CARD.md](docs/MODEL_CARD.md) for provenance, [AUDIO_EVALUATION.md](docs/AUDIO_EVALUATION.md) for calibration tooling, and [ANDROID_V03_VALIDATION.md](docs/ANDROID_V03_VALIDATION.md) for the physical-device matrix. **All physical-device tests remain pending until performed.**

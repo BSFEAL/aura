@@ -1,4 +1,6 @@
 export interface Device { id: string; name: string; kind: 'phone' | 'sensor' }
-export interface Rule { id: string; device_id: string; text: string; threshold: number; enabled: boolean }
-export interface AuraEvent { id: string; device_id: string; rule_id: string | null; rms: number; simulated: boolean; created_at: string }
+export type SoundEventType = 'dog_bark' | 'alarm_siren' | 'rain' | 'running_water' | 'knocking' | 'doorbell';
+export type Condition = {type:'rms_above'; threshold:number; legacy_repeat:boolean} | {type:'audio_event';event_type:SoundEventType;class_id:string|null;min_score:number;release_score:number;min_duration_ms:number;max_gap_ms:number;ema_alpha:number;model_version:string;mapping_version:string;threshold_version:string};
+export interface Rule { schema_version:2; id:string; enabled:boolean; source:{device_id:string;modality:'audio'};condition:Condition;policy:{cooldown_ms:number;notify:boolean};text:string;remote:boolean }
+export interface AuraEvent { schema_version:2;id:string;device_id:string;rule_id:string|null;rms:number;simulated:boolean;created_at:string;event_type:'rms_above'|SoundEventType;label:string;class_id:string|null;peak_score:number|null;mean_score:number|null;model_version:string|null;provenance:'model_detected'|'simulated'|'device_reported';start_at:string;end_at:string|null;duration_ms:number;notification_status:string;evidence_verified:false }
 export interface Status { version: string; devices: number; enabled_rules: number; events: number; monitoring: string }

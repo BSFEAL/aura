@@ -36,21 +36,26 @@ object Api {
         // Upload each local event once per backend/device; retries can duplicate after a network interruption.
         val syncKey = "synced:$origin:$id"
         val synced = Store.setting(context, syncKey).split(',').filter { it.isNotBlank() }.toMutableSet()
-        val currentRules = Store.rules(context)
         for (event in Store.events(context).reversed()) {
-            if (event.id in synced) continue
-            val payload = JSONObject().put("device_id", id).put("rms", event.rms)
-            // Historical events remain valid when a downloaded rule has since been disabled.
-            // Preserve local rule association on phone; API ingestion is a device-level report.
-            request("events", payload)
+            if(event.id in synced || event.endMs==null) continue
+            val payload=JSONObject().put("schema_version",2).put("device_id",id).put("client_event_id",event.id)
+                .put("event_type",event.eventType).put("label",event.label).put("rms",event.rms)
+                .put("provenance",event.provenance).put("start_at",java.time.Instant.ofEpochMilli(event.startMs).toString())
+                .put("end_at",java.time.Instant.ofEpochMilli(event.endMs).toString()).put("duration_ms",event.durationMs)
+                .put("notification_status",event.notificationStatus).put("state",event.state)
+            if(event.modelVersion!=null) {
+                payload.put("class_id",event.classId).put("peak_score",event.peakScore).put("mean_score",event.meanScore)
+                    .put("model_version",event.modelVersion).put("mapping_version",event.mappingVersion).put("threshold_version",event.thresholdVersion)
+            }
+            // Omit rule_id for historical reports; the original local rule ID remains on the phone.
+            request("v2/events",payload)
             synced.add(event.id)
-            Store.setting(context, syncKey, synced.toList().takeLast(200).joinToString(","))
+            Store.setting(context,syncKey,synced.toList().takeLast(200).joinToString(","))
         }
-        val array = JSONArray(request("rules"))
-        val remote = (0 until array.length()).map { array.getJSONObject(it) }.filter { it.getString("device_id") == id }.map {
-            LocalRule(it.getString("id"), it.getString("text"), it.getDouble("threshold"), it.getBoolean("enabled"), true)
-        }
-        Store.saveRules(context, currentRules.filter { !it.remote } + remote)
-        return "Synced ${remote.size} API rules and local event history. Device: $id"
+        val array=JSONArray(request("v2/rules"))
+        val remote=(0 until array.length()).map { array.getJSONObject(it) }.filter { it.getJSONObject("source").getString("device_id")==id }
+            .map { RuleCodec.decode(it.toString()).copy(remote=true) }
+        Store.replaceRemoteRules(context,remote)
+        return "Synced ${remote.size} API rules and completed local episodes. Device: $id"
     }
 }

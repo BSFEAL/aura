@@ -1,0 +1,13 @@
+{
+  "platform": "Android API 30 x86_64 CI emulator (not a physical phone)",
+  "model_version": "yamnet-tflite-1-10c95ea3",
+  "init_ms": 78,
+  "windows": 12,
+  "average_inference_ms": 3.25,
+  "p95_inference_ms": 4,
+  "process_pss_kib": 99870,
+  "calibrated": false,
+  "ci_run": "https://github.com/BSFEAL/aura/actions/runs/40425627569",
+  "commit": "e9f6929e069040340663e1129dbc983076628b27",
+  "measurement": "12 repeated licensed fixture windows, no microphone hardware, not a physical phone or battery benchmark"
+}
