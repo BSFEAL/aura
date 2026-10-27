@@ -1,0 +1,106 @@
+{
+  "model_version": "yamnet-tflite-1-10c95ea3",
+  "mapping_version": "aura-audioset-v1",
+  "threshold_version": "provisional-v1",
+  "source": "https://storage.googleapis.com/download.tensorflow.org/models/tflite/task_library/audio_classification/android/lite-model_yamnet_classification_tflite_1.tflite",
+  "license": "Apache-2.0",
+  "input": {
+    "name": "waveform_binary",
+    "shape": [
+      15600
+    ],
+    "dtype": "float32",
+    "sample_rate": 16000,
+    "pcm_divisor": 32768
+  },
+  "output": {
+    "name": "tower0/network/layer32/final_output",
+    "shape": [
+      1,
+      521
+    ],
+    "dtype": "float32",
+    "semantics": "independent logistic scores; not calibrated event probabilities"
+  },
+  "assets": {
+    "yamnet.tflite": {
+      "sha256": "10c95ea3eb9a7bb4cb8bddf6feb023250381008177ac162ce169694d05c317de",
+      "bytes": 4126810
+    },
+    "yamnet_labels.txt": {
+      "sha256": "8e1267a120c1932b7273c0d0e0c5529edbb9a35512b437b1c8982baa59047051",
+      "bytes": 6230
+    },
+    "yamnet_class_map.csv": {
+      "sha256": "cdf24d193e196d9e95912a2667051ae203e92a2ba09449218ccb40ef787c6df2",
+      "bytes": 14096
+    }
+  },
+  "events": {
+    "dog_bark": [
+      {
+        "index": 70,
+        "class_id": "/m/05tny_",
+        "label": "Bark"
+      }
+    ],
+    "alarm_siren": [
+      {
+        "index": 382,
+        "class_id": "/m/07pp_mv",
+        "label": "Alarm"
+      },
+      {
+        "index": 390,
+        "class_id": "/m/03kmc9",
+        "label": "Siren"
+      }
+    ],
+    "rain": [
+      {
+        "index": 283,
+        "class_id": "/m/06mb1",
+        "label": "Rain"
+      },
+      {
+        "index": 284,
+        "class_id": "/m/07r10fb",
+        "label": "Raindrop"
+      },
+      {
+        "index": 285,
+        "class_id": "/t/dd00038",
+        "label": "Rain on surface"
+      }
+    ],
+    "running_water": [
+      {
+        "index": 364,
+        "class_id": "/m/02jz0l",
+        "label": "Water tap, faucet"
+      }
+    ],
+    "knocking": [
+      {
+        "index": 353,
+        "class_id": "/m/07r4wb8",
+        "label": "Knock"
+      }
+    ],
+    "doorbell": [
+      {
+        "index": 349,
+        "class_id": "/m/03wwcy",
+        "label": "Doorbell"
+      }
+    ]
+  },
+  "fixture": {
+    "path": "android/app/src/androidTest/assets/dog_bark_16k.pcm",
+    "sha256": "3aad504291e70b99b2af4c6723d83d3a535ff3d166ff3781cb82e50f3f47b404",
+    "bytes": 31200,
+    "source_sha256": "f40a849a2375c8c63312a73dd2dd6c74007301fcc21b4be2ece29a642831e3d8",
+    "source_commit": "33c8ce9eb2cf0b1c2f8bcf322eb349b6be34dbb6",
+    "resample": "scipy resample_poly 160/441; crop 28000:43600"
+  }
+}
