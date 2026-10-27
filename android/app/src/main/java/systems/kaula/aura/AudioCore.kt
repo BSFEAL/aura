@@ -57,6 +57,10 @@ class AudioWindowBuffer(val intervalMs: Int = 500, sampleRate: Int = ModelSpec.S
 
 data class EventClass(val id: String, val label: String, val classIds: Set<String>)
 object SoundCatalog {
+    val classLabels = mapOf(
+        "/m/05tny_" to "Bark", "/m/07pp_mv" to "Alarm", "/m/03kmc9" to "Siren",
+        "/m/06mb1" to "Rain", "/m/07r10fb" to "Raindrop", "/t/dd00038" to "Rain on surface",
+        "/m/02jz0l" to "Water tap, faucet", "/m/07r4wb8" to "Knock", "/m/03wwcy" to "Doorbell")
     val events = listOf(
         EventClass("dog_bark", "Dog barking", setOf("/m/05tny_")),
         EventClass("alarm_siren", "Alarm or siren", setOf("/m/07pp_mv", "/m/03kmc9")),
