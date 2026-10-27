@@ -19,7 +19,7 @@ Initial host smoke on Linux x86_64 / Python 3.12.14 / LiteRT 2.3.0, 2 native thr
 - Model initialization: 34.58 ms.
 - Mean inference: 1.37 ms; p95: 2.21 ms over 12 repeated fixture windows.
 
-These are development-host CPU timings, not Android, power, natural-event accuracy or thermal measurements. One repeated bark fixture response is an integration assertion, not a calibrated probability. The model asset is **4,126,810 bytes**. Local v0.3 APK: **28,609,675 bytes**, versus **9,158,756 bytes** for v0.2: **+19,450,919 bytes**. The increase includes the 4.13 MB model, universal native TFLite runtimes and serialization/UI code. The model SHA inside the APK was verified, and the test-only bark fixture is absent from the user APK. CI artifact byte counts can vary slightly with signing/toolchain.
+These are development-host CPU timings, not Android, power, natural-event accuracy or thermal measurements. One repeated bark fixture response is an integration assertion, not a calibrated probability. The model asset is **4,126,810 bytes**. Local v0.3 APK: **28,609,794 bytes**, versus **9,158,756 bytes** for v0.2: **+19,451,038 bytes**. The increase includes the 4.13 MB model, universal native TFLite runtimes and serialization/UI code. The model SHA inside the APK was verified, and the test-only bark fixture is absent from the user APK. CI artifact byte counts can vary slightly with signing/toolchain.
 
 Android runtime instrumentation exposes initialization time, session mean and last-128 p95 inference latency, processed windows, windows/s, failures, dropped windows, Java heap estimate, Android process PSS and foreground-service errors. One consumer and one waiting window bound concurrency. No battery consumption numbers are inferred from CI.
 

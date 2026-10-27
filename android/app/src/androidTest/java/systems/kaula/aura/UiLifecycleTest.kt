@@ -49,6 +49,16 @@ class UiLifecycleTest {
         compose.onAllNodesWithText("Edit").onFirst().performScrollTo().performClick()
         compose.onNodeWithText("Save changes").performScrollTo().performClick()
         compose.runOnIdle {
+            Store.saveRules(compose.activity,Store.rules(compose.activity)+LocalRule(id="pinned-profile-test",condition=Condition.Audio("rain",modelVersion="unsupported-pinned-model")))
+        }
+        compose.onAllNodesWithText("Edit").onLast().performScrollTo().performClick()
+        compose.onNodeWithText("Save changes").performScrollTo().performClick()
+        compose.runOnIdle {
+            val pinned=Store.rules(compose.activity).first { it.id=="pinned-profile-test" }
+            assertEquals("unsupported-pinned-model",(pinned.condition as Condition.Audio).modelVersion)
+            assertNotNull(pinned.unavailableReason(true))
+        }
+        compose.runOnIdle {
             Store.saveEvent(compose.activity,LocalEvent(id="ui-test-event",ruleId="test",eventType="dog_bark",classId="/m/05tny_",label="Possible Dog barking",startMs=1780000000000,peakScore=.8f,meanScore=.7f,modelVersion=ModelSpec.VERSION,provenance="model_detected"))
         }
         compose.onAllNodesWithText("Events").onFirst().performScrollTo().performClick()

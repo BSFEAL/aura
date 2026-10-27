@@ -20,11 +20,11 @@ The verified v0.2 platform now runs a real, pinned YAMNet TFLite model locally o
 - Web: **7 unit tests + 2 real-API Playwright flows passed**, strict TypeScript and production build passed, 390px viewport and untrusted labels covered.
 - Android: **13 JVM tests**, debug/test-APK compilation and lint passed locally. **5 emulator integration tests passed** on verified snapshot `e9f6929`, including actual native TFLite inference → temporal rule → typed local store, all curated label mappings, migration, permission denial, Start/Stop notification behavior and rule/history UI. Latest PR checks rerun final source refinements.
 - Actual host LiteRT smoke verifies finite `[1,521]` output and embedded-label alignment. The user APK was inspected for the pinned model SHA and absence of test audio.
-- Backend and web dependency audits: no known vulnerabilities. No failing check is suppressed.
+- Backend and web dependency audits: no known vulnerabilities. No failing check is suppressed. CI concurrency cancels stale runs within an event/branch while preserving separate push and PR checks. Rule editing preserves unsupported pinned profiles rather than silently upgrading them.
 
 ### Measured performance and artifact
 
-- Model asset: **4,126,810 bytes**. Final local debug APK: **28,609,675 bytes**, versus v0.2 **9,158,756 bytes** (**+19,450,919**); native TFLite runtimes/model account for much of the increase. Signing/toolchains can slightly change APK bytes.
+- Model asset: **4,126,810 bytes**. Final local debug APK: **28,609,794 bytes**, versus v0.2 **9,158,756 bytes** (**+19,451,038**); native TFLite runtimes/model account for much of the increase. Signing/toolchains can slightly change APK bytes.
 - Development Linux x86_64 host, 12 repeated fixture windows: initialization **34.58 ms**, mean **1.37 ms**, p95 **2.21 ms**.
 - Android API 30 x86_64 **CI emulator**, 12 repeated fixture windows: initialization **78 ms**, mean **3.25 ms**, p95 **4 ms**, process PSS **99,870 KiB**. These are not physical-phone, battery or accuracy measurements.
 - [Verified Android CI and APK artifact](https://github.com/BSFEAL/aura/actions/runs/40425627569/artifacts/12698479445). The final PR artifact link is added after the latest checks complete.

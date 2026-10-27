@@ -191,7 +191,10 @@ class MainActivity : ComponentActivity() {
         Row { Text("Notify for this rule",Modifier.weight(1f)); Switch(modifier=Modifier.semantics { contentDescription="Notify for this rule" },checked=notify,onCheckedChange={notify=it}) }
         Button(enabled=!MonitorService.active.value && !MonitorService.finishing.value,onClick={
             try {
-                val condition=if(eventType=="rms_above") Condition.Rms(value.toDouble(),(editing?.condition as? Condition.Rms)?.legacyRepeat ?: false) else Condition.Audio(eventType,value.toFloat(),release.toFloat(),persistence.toLong(),gap.toLong(),alpha.toFloat(),classId=classId)
+                val condition=if(eventType=="rms_above") Condition.Rms(value.toDouble(),(editing?.condition as? Condition.Rms)?.legacyRepeat ?: false) else Condition.Audio(eventType,value.toFloat(),release.toFloat(),persistence.toLong(),gap.toLong(),alpha.toFloat(),
+                    modelVersion=(editing?.condition as? Condition.Audio)?.modelVersion ?: ModelSpec.VERSION,
+                    mappingVersion=(editing?.condition as? Condition.Audio)?.mappingVersion ?: ModelSpec.MAPPING,
+                    thresholdVersion=(editing?.condition as? Condition.Audio)?.thresholdVersion ?: ModelSpec.THRESHOLDS,classId=classId)
                 val rule=LocalRule(id=editing?.id ?: UUID.randomUUID().toString(),enabled=editing?.enabled ?: true,source=editing?.source ?: Source(Store.localDeviceId(this@MainActivity)),condition=condition,policy=Policy(cooldown.toLong(),notify),remote=editing?.remote ?: false).validate()
                 Store.saveRules(this@MainActivity,rules.filter { it.id!=rule.id }+rule);editing=null;onMessage("Rule saved; microphone activation remains manual")
             } catch(_: Exception) { onMessage("Invalid rule. Check finite scores, release < activation, duration/gap/cooldown ranges and selected capability.") }
