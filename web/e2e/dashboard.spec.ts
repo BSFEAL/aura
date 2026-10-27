@@ -117,6 +117,8 @@ test('Anthropic selection resets consent and preview before explicit disabled sa
   await page.getByLabel('Allow sharing this conversation with Anthropic').check();
   await page.getByRole('button',{name:'Send to Anthropic'}).click();
   await expect(page.locator('#nl-preview')).toContainText('claude-sonnet-4-6');
+  await page.setViewportSize({width:390,height:844});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
   const [saved]=await Promise.all([
     page.waitForResponse(response=>response.url().endsWith('/api/v2/rules') && response.request().method()==='POST'),
     page.getByRole('button',{name:'Save disabled rule'}).click(),

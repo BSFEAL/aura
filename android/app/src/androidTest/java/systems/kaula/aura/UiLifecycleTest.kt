@@ -22,6 +22,17 @@ class UiLifecycleTest {
             java.io.FileInputStream(it.fileDescriptor).bufferedReader().use { reader->reader.readText() }
         }
     }
+    private fun dismissKeyboard() {
+        compose.runOnIdle {
+            val activity=compose.activity
+            activity.getSystemService(android.view.inputmethod.InputMethodManager::class.java)
+                .hideSoftInputFromWindow(activity.window.decorView.windowToken,0)
+            activity.currentFocus?.clearFocus()
+        }
+        compose.waitUntil(5000) {
+            compose.activity.window.decorView.rootWindowInsets?.isVisible(android.view.WindowInsets.Type.ime())!=true
+        }
+    }
     @Test fun backupControlsAreVisibleWithoutStartingMonitoring() {
         compose.onAllNodesWithText("Settings").onFirst().performClick()
         compose.onNodeWithText("Backup",useUnmergedTree=true).performScrollTo().performClick()
@@ -78,6 +89,7 @@ class UiLifecycleTest {
             compose.onNodeWithText("Private HTTPS backend URL").performScrollTo().performTextReplacement("https://private.invalid")
             compose.onNodeWithText("AURA API token (not a provider key)").performScrollTo().performTextReplacement("test-aura-token-at-least-24")
             compose.onNodeWithText("What should AURA monitor?").performScrollTo().performTextReplacement("Notify me when my dog barks for 2 seconds")
+            dismissKeyboard()
             compose.onNodeWithText("Send to OpenAI").performScrollTo().assertIsNotEnabled()
             assertEquals(0,calls.get())
             compose.onNodeWithContentDescription("Consent to OpenAI rule text sharing").performScrollTo().performClick()
@@ -87,6 +99,7 @@ class UiLifecycleTest {
             compose.onNodeWithText("Review proposed rule").performScrollTo().assertIsDisplayed()
             assertEquals(originals,Store.rules(compose.activity));assertFalse(MonitorService.active.value)
             compose.onNodeWithText("What should AURA monitor?").performScrollTo().performTextReplacement("Notify me when my dog barks for 2 seconds")
+            dismissKeyboard()
             compose.onNodeWithText("Save disabled rule").assertDoesNotExist()
             compose.onNodeWithText("Send to OpenAI").performScrollTo().performClick()
             compose.waitUntil(10000) { calls.get()==2 }
@@ -124,11 +137,13 @@ class UiLifecycleTest {
             compose.onNodeWithText("Private HTTPS backend URL").performScrollTo().performTextReplacement("https://private.invalid")
             compose.onNodeWithText("AURA API token (not a provider key)").performScrollTo().performTextReplacement("test-aura-token-at-least-24")
             compose.onNodeWithText("What should AURA monitor?").performScrollTo().performTextReplacement("Notify me about my pet")
+            dismissKeyboard()
             compose.onNodeWithContentDescription("Consent to OpenAI rule text sharing").performScrollTo().performClick()
             compose.onNodeWithText("Send to OpenAI").performScrollTo().performClick()
             compose.waitUntil(10000) { calls.get()==1 }
             compose.onNodeWithText("Save disabled rule").assertDoesNotExist()
             compose.onNodeWithText("What should AURA monitor?").performScrollTo().performTextReplacement("Dog barking for 2 seconds, 45 seconds cooldown")
+            dismissKeyboard()
             compose.onNodeWithText("Send to OpenAI").performScrollTo().performClick()
             compose.waitUntil(10000) { calls.get()==2 }
             compose.onNodeWithText("Review proposed rule").performScrollTo().assertIsDisplayed()
