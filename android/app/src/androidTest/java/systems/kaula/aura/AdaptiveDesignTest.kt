@@ -1,5 +1,7 @@
 package systems.kaula.aura
 
+import android.content.ContentValues
+import android.provider.MediaStore
 import android.graphics.Bitmap
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.*
@@ -10,7 +12,7 @@ import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.io.File
+import java.io.ByteArrayOutputStream
 
 /** Real emulator renders; screenshots contain synthetic metadata only where explicitly labeled. */
 @RunWith(AndroidJUnit4::class)
@@ -23,17 +25,23 @@ class AdaptiveDesignTest {
     }
     private fun capture(name: String) {
         compose.waitForIdle()
-        val root=File(compose.activity.getExternalFilesDir(null),"screenshots").apply { mkdirs() }
-        val image=File(root,"$name.png")
-        image.outputStream().use { compose.onNodeWithTag("aura-app").captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG,100,it) }
-        // Gradle may uninstall the test target after execution. Export while it still exists.
-        // Only instrumentation's shell identity copies these explicit test screenshots.
-        val exported="/sdcard/Download/aura-ui-screenshots/$name.png"
-        // executeShellCommand runs one executable; it does not interpret shell operators.
-        shell("mkdir -p /sdcard/Download/aura-ui-screenshots")
-        shell("cp ${image.absolutePath} $exported")
-        assertTrue(image.length()>0)
-        assertEquals(image.length(),shell("stat -c %s $exported").trim().toLong())
+        // Scoped-storage-safe export of test PNGs; no storage permission or app code added.
+        val bytes=ByteArrayOutputStream().use { output ->
+            assertTrue(compose.onNodeWithTag("aura-app").captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG,100,output))
+            output.toByteArray()
+        }
+        val resolver=compose.activity.contentResolver
+        val values=ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME,"$name.png")
+            put(MediaStore.Images.Media.MIME_TYPE,"image/png")
+            put(MediaStore.Images.Media.RELATIVE_PATH,"Pictures/aura-ui-screenshots")
+            put(MediaStore.Images.Media.IS_PENDING,1)
+        }
+        val uri=requireNotNull(resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI,values))
+        requireNotNull(resolver.openOutputStream(uri)).use { it.write(bytes) }
+        resolver.update(uri,ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING,0) },null,null)
+        requireNotNull(resolver.openAssetFileDescriptor(uri,"r")).use { assertEquals(bytes.size.toLong(),it.length) }
+
     }
     @Test fun phoneScreensAndTabletNavigationRemainAccessible() {
         val originals=Store.rules(compose.activity)

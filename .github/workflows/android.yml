@@ -91,7 +91,7 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           working-directory: android
-          script: bash -c './gradlew connectedDebugAndroidTest --no-daemon; result=$?; adb pull /sdcard/Download/aura-ui-screenshots app/build/outputs/ui-screenshots; images=$?; if [ "$result" -ne 0 ]; then exit "$result"; fi; exit "$images"'
+          script: bash -c './gradlew connectedDebugAndroidTest --no-daemon; result=$?; adb pull /sdcard/Pictures/aura-ui-screenshots app/build/outputs/ui-screenshots; images=$?; if [ "$result" -ne 0 ]; then exit "$result"; fi; exit "$images"'
       - uses: actions/upload-artifact@v4
         if: always()
         with:
