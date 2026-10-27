@@ -28,6 +28,14 @@ class RulePlannerTest {
         }
         assertThrows(IllegalArgumentException::class.java) { RulePlanCodec.decode(json,"changed request","phone") }
     }
+    @Test fun anthropicProtocolIsValidatedAndBoundToSelectedProvider() {
+        val json=fixture().replace("openai","anthropic").replace("gpt-4.1-mini-2025-04-14","claude-sonnet-4-6")
+        val draft=(RulePlanCodec.decode(json,request,"phone","anthropic") as RulePlan.Ready).draft
+        assertEquals("claude-sonnet-4-6",draft.plannerModel)
+        assertFalse(draft.asDisabledRule("new","phone").enabled)
+        assertThrows(IllegalArgumentException::class.java) { RulePlanCodec.decode(json,request,"phone","openai") }
+        assertThrows(IllegalArgumentException::class.java) { RulePlanCodec.decode(json.replace("aura-anthropic-rule-planner-v1","aura-openai-rule-planner-v1"),request,"phone") }
+    }
     @Test fun clarificationIsNotASavableRule() {
         val json="""{"schema_version":2,"status":"clarification","mode":"openai","planner_version":"aura-openai-rule-planner-v1","planner_model":"gpt-4.1-mini-2025-04-14","message":"Do you mean Bark?"}"""
         assertEquals("Do you mean Bark?",(RulePlanCodec.decode(json,request,"phone") as RulePlan.Clarify).message)

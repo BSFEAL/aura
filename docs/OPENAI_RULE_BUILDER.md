@@ -76,3 +76,7 @@ CI uses explicit provider HTTP fixtures through `httpx.MockTransport`, not OpenA
 Live OpenAI interpretation quality, real-key/model access, private phone HTTPS connectivity, cloud latency/cost, and phone UI/consent/save behavior remain PENDING until tested on your configured machine/phone. Model accuracy, battery use and thermal behavior are not inferred from these tests.
 
 API reference: [OpenAI Responses create](https://platform.openai.com/docs/api-reference/responses/create) and [Structured Outputs](https://platform.openai.com/docs/guides/structured-outputs).
+
+## Anthropic alternative
+
+v0.4.1 adds explicit Anthropic selection in Android and web. OpenAI remains backward compatible. See [Anthropic setup](ANTHROPIC_RULE_BUILDER.md); consent to one provider never authorizes another.

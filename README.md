@@ -116,3 +116,7 @@ Android: JDK 17, Gradle 8.9 (checksummed wrapper), AGP 8.7.3, Kotlin 2.0.21, SDK
 Existing Python/web/Android workflows remain, with model integrity/real-inference smoke and emulator integration added. CI publishes `aura-v0.3-debug-apk`, web bundle, model smoke metrics, lint/JVM reports and emulator reports. Failures propagate. No real microphone hardware is required for emulator inference.
 
 See [VALIDATION.md](VALIDATION.md) for executed results/measurements, [MODEL_CARD.md](docs/MODEL_CARD.md) for provenance, [AUDIO_EVALUATION.md](docs/AUDIO_EVALUATION.md) for calibration tooling, and [ANDROID_V03_VALIDATION.md](docs/ANDROID_V03_VALIDATION.md) for the physical-device matrix. **Initial user-reported phone checks are recorded separately; detailed device/measurement records and remaining scenarios are still pending.**
+
+### Anthropic alternative (v0.4.1)
+
+The natural-language rule preview now offers OpenAI or Anthropic, with provider-specific consent and server-only keys. See [Anthropic setup and safeguards](docs/ANTHROPIC_RULE_BUILDER.md). No automatic provider fallback; saved rules remain local and disabled until explicitly enabled.

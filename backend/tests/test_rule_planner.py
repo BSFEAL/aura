@@ -168,3 +168,81 @@ def test_live_smoke_checks_the_known_prompt_mapping(monkeypatch):
     assert smoke.main()==0
     value['proposal']['condition']['event_type']='rain'
     assert smoke.main()==1
+
+
+def anthropic_envelope(value=None, **updates):
+    return dict(type='message',stop_reason='end_turn',model=planner.ANTHROPIC_MODEL,
+                content=[dict(type='text',text=json.dumps(value or output()))]) | updates
+
+
+def test_anthropic_protocol_and_read_only_preview(client,provider,monkeypatch):
+    monkeypatch.setenv('ANTHROPIC_API_KEY','test-anthropic-secret')
+    calls,responses=provider
+    responses[0]=httpx.Response(200,json=anthropic_envelope())
+    result=client.post('/api/v2/rules/preview',json=request(provider='anthropic',consent_to_anthropic=True,consent_to_openai=None))
+    assert result.status_code==200,result.text
+    value=result.json()
+    assert value['mode']=='anthropic' and value['planner_version']=='aura-anthropic-rule-planner-v1'
+    assert value['planner_model']==planner.ANTHROPIC_MODEL and value['proposal']['enabled'] is False
+    assert value['classes']==[dict(class_id='/m/05tny_',label='Bark')]
+    sent=calls[0]; body=json.loads(sent.content)
+    assert str(sent.url)==planner.ANTHROPIC_URL
+    assert sent.headers['x-api-key']=='test-anthropic-secret' and sent.headers['anthropic-version']=='2023-06-01'
+    assert 'authorization' not in sent.headers
+    assert body['messages']==[dict(role='user',content=request()['text'])]
+    assert body['output_config']['format']==dict(type='json_schema',schema=planner.output_schema())
+    assert body['model']==planner.ANTHROPIC_MODEL and body['max_tokens']==1800
+    assert 'tools' not in body and 'device_id' not in body and 'store' not in body
+    assert client.get('/api/v2/rules').json()==[] and client.get('/api/v2/events').json()==[]
+
+
+@pytest.mark.parametrize('consents',[
+    {},{'consent_to_openai':True},{'consent_to_anthropic':False},{'consent_to_anthropic':1},
+    {'consent_to_anthropic':'true'},{'consent_to_anthropic':True,'consent_to_openai':True},
+])
+def test_anthropic_requires_provider_specific_consent(client,provider,consents):
+    payload=request(provider='anthropic');payload.pop('consent_to_openai');payload.update(consents)
+    assert client.post('/api/v2/rules/preview',json=payload).status_code==422
+    assert provider[0]==[]
+
+
+@pytest.mark.parametrize('response',[
+    httpx.Response(200,json=anthropic_envelope(stop_reason='max_tokens')),
+    httpx.Response(200,json=anthropic_envelope(stop_reason='refusal')),
+    httpx.Response(200,json=anthropic_envelope(content=[dict(type='tool_use',name='unsafe') ])),
+    httpx.Response(200,json=anthropic_envelope(output(min_duration_ms=60001))),
+    httpx.Response(200,json=anthropic_envelope(model=None)),
+    httpx.Response(200,json=anthropic_envelope(content=[dict(type='text',text='bad json')])),
+    httpx.Response(200,content=b'x'*(planner.MAX_BYTES+1)),
+    httpx.Response(429,json={'error':'test-anthropic-secret'}),
+    httpx.Response(307,headers={'Location':'https://example.invalid'}),
+    httpx.ReadTimeout('test-anthropic-secret'),
+])
+def test_anthropic_failures_never_fallback(client,provider,monkeypatch,response):
+    monkeypatch.setenv('ANTHROPIC_API_KEY','test-anthropic-secret')
+    provider[1][0]=response
+    result=client.post('/api/v2/rules/preview',json=request(provider='anthropic',consent_to_anthropic=True,consent_to_openai=None))
+    assert result.status_code==502 and 'test-anthropic-secret' not in result.text
+    assert len(provider[0])==1 and str(provider[0][0].url)==planner.ANTHROPIC_URL
+    assert client.get('/api/v2/rules').json()==[]
+
+
+def test_anthropic_missing_key_does_not_use_openai(client,provider,monkeypatch):
+    monkeypatch.delenv('ANTHROPIC_API_KEY',raising=False)
+    result=client.post('/api/v2/rules/preview',json=request(provider='anthropic',consent_to_anthropic=True,consent_to_openai=None))
+    assert result.status_code==503 and provider[0]==[]
+
+
+@pytest.mark.parametrize('value,expected',[
+    (output(status='clarification',event_type=None,class_ids=[],min_score=None,release_score=None,min_duration_ms=None,max_gap_ms=None,ema_alpha=None,cooldown_ms=None,notify=False,message='Choose one supported sound'),'clarification'),
+    (output(event_type='rms_above',class_ids=[],rms_threshold=.15,min_score=None,release_score=None,min_duration_ms=None,max_gap_ms=None,ema_alpha=None),'ready'),
+])
+def test_anthropic_clarification_and_rms(client,provider,monkeypatch,value,expected):
+    monkeypatch.setenv('ANTHROPIC_API_KEY','test-anthropic-secret')
+    provider[1][0]=httpx.Response(200,json=anthropic_envelope(value))
+    result=client.post('/api/v2/rules/preview',json=request(provider='anthropic',consent_to_anthropic=True,consent_to_openai=None))
+    assert result.status_code==200,result.text
+    assert result.json()['status']==expected and result.json()['mode']=='anthropic'
+    if expected=='ready':
+        assert result.json()['proposal']['condition']['legacy_repeat'] is False
+        assert result.json()['proposal']['enabled'] is False

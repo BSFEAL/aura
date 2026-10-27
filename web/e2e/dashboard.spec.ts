@@ -91,3 +91,27 @@ test('OpenAI protocol preview uses real API validation and explicit disabled sav
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
   expect(errors).toEqual([]);
 });
+
+
+test('Anthropic selection resets consent and preview before explicit disabled save', async ({page,request}) => {
+  const headers={Authorization:'Bearer e2e-local-token-at-least-24-characters'};
+  const device=await (await request.post('/api/devices',{headers,data:{name:'Anthropic phone'}})).json();
+  await page.goto('/');await page.getByLabel('API access token').fill('e2e-local-token-at-least-24-characters');
+  await page.getByRole('button',{name:'Connect dashboard'}).click();
+  await page.getByLabel('Preview device').selectOption(device.id);
+  await page.getByLabel('What should AURA monitor?').fill('Notify me when my dog barks for 2 seconds');
+  await page.getByLabel('Allow sharing this rule text with OpenAI').check();
+  await page.getByRole('button',{name:'Send text to OpenAI & preview'}).click();
+  await expect(page.getByRole('button',{name:'Save disabled rule'})).toBeVisible();
+  await page.getByLabel('LLM provider').selectOption('anthropic');
+  await expect(page.getByRole('button',{name:'Save disabled rule'})).toHaveCount(0);
+  await expect(page.getByLabel('Allow sharing this rule text with Anthropic')).not.toBeChecked();
+  await page.getByLabel('Allow sharing this rule text with Anthropic').check();
+  await page.getByRole('button',{name:'Send text to Anthropic & preview'}).click();
+  await expect(page.locator('#nl-preview')).toContainText('claude-sonnet-4-6');
+  await page.getByRole('button',{name:'Save disabled rule'}).click();
+  const rule=(await (await request.get('/api/v2/rules',{headers})).json()).find((r:{source:{device_id:string}})=>r.source.device_id===device.id);
+  expect(rule.enabled).toBe(false);expect(rule.condition.min_duration_ms).toBe(2000);
+  await page.setViewportSize({width:390,height:844});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+});

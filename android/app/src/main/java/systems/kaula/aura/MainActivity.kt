@@ -36,7 +36,7 @@ import java.util.UUID
 
 class MainActivity : ComponentActivity() {
     companion object {
-        internal var rulePlannerFactory: (String,String,String)->RulePlanner = { base,token,device -> BackendRulePlanner(base,token,device) }
+        internal var rulePlannerFactory: (String,String,String,String)->RulePlanner = { base,token,device,provider -> BackendRulePlanner(base,token,device,provider) }
     }
     private val systemAlertsAllowed=mutableStateOf(true)
     private val fileBusy=mutableStateOf(false)
@@ -108,7 +108,7 @@ class MainActivity : ComponentActivity() {
         Scaffold(topBar={
             Column(Modifier.background(MaterialTheme.colorScheme.background).statusBarsPadding().padding(horizontal=20.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                 Text("AURA ◌",style=MaterialTheme.typography.headlineLarge,color=MaterialTheme.colorScheme.primary)
-                Text("SOUND INTELLIGENCE · by kaula.systems · v0.4.0",style=MaterialTheme.typography.labelSmall)
+                Text("SOUND INTELLIGENCE · by kaula.systems · v0.4.1",style=MaterialTheme.typography.labelSmall)
                 Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     listOf("Dashboard","Live","Rules","Events","Diagnostics","Backup","Devices","Alerts").forEach { page -> FilterChip(selected=tab==page,onClick={tab=page},label={Text(page)}) }
                 }
@@ -266,14 +266,21 @@ class MainActivity : ComponentActivity() {
         var result by remember { mutableStateOf<RulePlan?>(null) }
         var planning by remember { mutableStateOf(false) }
         var consent by remember { mutableStateOf(false) }
+        var provider by remember { mutableStateOf("openai") }
+        val providerName=if(provider=="anthropic") "Anthropic" else "OpenAI"
         val focus=LocalFocusManager.current
         val keyboard=LocalSoftwareKeyboardController.current
         val scope=rememberCoroutineScope()
         val stopped=!MonitorService.active.value && !MonitorService.finishing.value
         Text("Describe a monitoring rule",style=MaterialTheme.typography.titleLarge)
-        Text("OpenAI rule preview via your local/private backend. Only rule text and the supported catalog are sent to OpenAI; microphone audio stays on-device. The OpenAI key belongs in the backend environment, never this app. Provider retention policies apply even with storage disabled.")
+        Text("$providerName rule preview via your local/private backend. Only rule text and the supported catalog are sent to $providerName; microphone audio stays on-device. Provider keys belong in the backend environment, never this app. Provider retention policies apply.")
+        Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+            listOf("openai" to "OpenAI","anthropic" to "Anthropic").forEach { (id,label) ->
+                OutlinedButton(enabled=stopped && !planning,onClick={provider=id;result=null;consent=false}) { Text(if(provider==id) "$label ✓" else label) }
+            }
+        }
         OutlinedTextField(value=base,onValueChange={onConfig(it,token);result=null;consent=false},enabled=stopped && !planning,label={Text("Private HTTPS backend URL")},keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Uri),singleLine=true,modifier=Modifier.fillMaxWidth())
-        OutlinedTextField(value=token,onValueChange={onConfig(base,it);result=null;consent=false},enabled=stopped && !planning,label={Text("AURA API token (not the OpenAI key)")},visualTransformation=PasswordVisualTransformation(),keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Password),singleLine=true,modifier=Modifier.fillMaxWidth())
+        OutlinedTextField(value=token,onValueChange={onConfig(base,it);result=null;consent=false},enabled=stopped && !planning,label={Text("AURA API token (not a provider key)")},visualTransformation=PasswordVisualTransformation(),keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Password),singleLine=true,modifier=Modifier.fillMaxWidth())
         OutlinedTextField(value=request,onValueChange={request=it;result=null},enabled=stopped && !planning,
             label={Text("What should AURA monitor?")},supportingText={Text("${request.length}/240 characters · preview before saving")},modifier=Modifier.fillMaxWidth())
         Row(Modifier.testTag("natural-rule-examples").horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -283,20 +290,20 @@ class MainActivity : ComponentActivity() {
                 OutlinedButton(enabled=stopped && !planning,onClick={focus.clearFocus();keyboard?.hide();request=example;result=null}) { Text(label) }
             }
         }
-        Row { Text("Allow sending this rule text to OpenAI through my backend",Modifier.weight(1f)); Checkbox(modifier=Modifier.semantics { contentDescription="Consent to OpenAI rule text sharing" },checked=consent,onCheckedChange={consent=it;result=null},enabled=stopped && !planning) }
+        Row { Text("Allow sending this rule text to $providerName through my backend",Modifier.weight(1f)); Checkbox(modifier=Modifier.semantics { contentDescription="Consent to $providerName rule text sharing" },checked=consent,onCheckedChange={consent=it;result=null},enabled=stopped && !planning) }
         Button(enabled=stopped && !planning && consent && base.isNotBlank() && token.length>=24 && request.isNotBlank() && request.length<=240,onClick={
             focus.clearFocus();keyboard?.hide()
             val submitted=request;planning=true;result=null
             scope.launch {
                 try {
-                    val planner=rulePlannerFactory(base,token,Store.localDeviceId(this@MainActivity))
+                    val planner=rulePlannerFactory(base,token,Store.localDeviceId(this@MainActivity),provider)
                     val proposal=planner.propose(submitted)
                     if(request==submitted) result=proposal
                 } catch(e: CancellationException) { throw e }
-                catch(_: Exception) { onMessage("Rule preview failed. Check private HTTPS URL, AURA token and backend OpenAI setup. No rule saved.") }
+                catch(_: Exception) { onMessage("Rule preview failed. Check private HTTPS URL, AURA token and backend provider setup. No rule saved.") }
                 finally { planning=false }
             }
-        }) { Text(if(planning) "Preparing preview…" else "Send text to OpenAI & preview") }
+        }) { Text(if(planning) "Preparing preview…" else "Send text to $providerName & preview") }
         when(val proposal=result) {
             is RulePlan.Clarify -> Text("Clarification needed: ${proposal.message}",color=MaterialTheme.colorScheme.secondary)
             is RulePlan.Ready -> {
@@ -304,7 +311,7 @@ class MainActivity : ComponentActivity() {
                 val preview=draft.asDisabledRule("preview","preview-device")
                 Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                     Text("Review proposed rule",style=MaterialTheme.typography.titleMedium)
-                    Text("OpenAI planner: ${draft.plannerModel} · interpretation unverified",style=MaterialTheme.typography.labelSmall)
+                    Text("${providerName} planner: ${draft.plannerModel} · interpretation unverified",style=MaterialTheme.typography.labelSmall)
                     Text(preview.label);Text(RuleFeedback.classes(preview))
                     when(val c=draft.condition) {
                         is Condition.Audio -> {
