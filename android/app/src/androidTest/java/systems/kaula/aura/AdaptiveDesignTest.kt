@@ -12,6 +12,8 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.ByteArrayOutputStream
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /** Real emulator renders; screenshots contain synthetic metadata only where explicitly labeled. */
 @RunWith(AndroidJUnit4::class)
@@ -24,6 +26,16 @@ class AdaptiveDesignTest {
     }
     private fun capture(name: String) {
         compose.waitForIdle()
+        // Compose idle does not imply that SurfaceFlinger has presented the new window.
+        // Commit a complete frame before capturing, especially after wm size/density changes.
+        val committed=CountDownLatch(1)
+        compose.runOnIdle {
+            val decor=compose.activity.window.decorView
+            decor.viewTreeObserver.registerFrameCommitCallback { committed.countDown() }
+            decor.invalidate()
+        }
+        assertTrue("A fresh hardware frame must commit before screenshot",committed.await(10,TimeUnit.SECONDS))
+        android.os.SystemClock.sleep(250)
         // Scoped-storage-safe export of test PNGs; no storage permission or app code added.
         val bytes=ByteArrayOutputStream().use { output ->
             compose.onNodeWithTag("aura-app").assertIsDisplayed()
