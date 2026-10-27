@@ -28,6 +28,8 @@ class IntelligenceTest {
         assertThrows(IllegalArgumentException::class.java) { ModelSpec.validate(16000,intArrayOf(15600),intArrayOf(1,527)) }
         assertEquals(.8f,SoundCatalog.score("dog_bark",listOf(ClassScore("/m/05tny_","Bark",.8f),ClassScore("speech","Speech",.99f))),0f)
         assertEquals(.9f,SoundCatalog.score("alarm_siren",listOf(ClassScore("/m/07pp_mv","Alarm",.8f),ClassScore("/m/03kmc9","Siren",.9f))),0f)
+        assertEquals(.8f,SoundCatalog.score("alarm_siren",listOf(ClassScore("/m/07pp_mv","Alarm",.8f),ClassScore("/m/03kmc9","Siren",.9f)),"/m/07pp_mv"),0f)
+        assertThrows(IllegalArgumentException::class.java) { SoundCatalog.score("rain",emptyList(),"/m/05tny_") }
         assertNull(SoundCatalog.event("door_open"))
         assertThrows(IllegalArgumentException::class.java) { SoundCatalog.score("rain",listOf(ClassScore("x","x",Float.NaN))) }
     }

@@ -32,6 +32,7 @@ class RmsCondition(Strict):
 class AudioCondition(Strict):
     type: Literal['audio_event'] = 'audio_event'
     event_type: EventType
+    class_id: str | None = Field(default=None, max_length=80)
     min_score: Score = .7
     release_score: Score = .5
     min_duration_ms: int = Field(default=3000, ge=0, le=60000, strict=True)
@@ -43,6 +44,8 @@ class AudioCondition(Strict):
 
     @model_validator(mode='after')
     def hysteresis(self):
+        if self.class_id is not None and self.class_id not in EVENT_CLASSES[self.event_type]:
+            raise ValueError("class_id must belong to selected event_type")
         if self.min_score <= self.release_score:
             raise ValueError('release_score must be below min_score')
         return self

@@ -20,6 +20,7 @@ import java.util.concurrent.atomic.AtomicLong
 class MonitorService : Service() {
     companion object {
         val active=mutableStateOf(false)
+        val finishing=mutableStateOf(false)
         val status=mutableStateOf("Stopped")
         val level=mutableDoubleStateOf(0.0)
         val error=mutableStateOf("")
@@ -32,6 +33,7 @@ class MonitorService : Service() {
     }
     private val scope=CoroutineScope(SupervisorJob()+Dispatchers.Main)
     private var worker: Job?=null
+    private var resourcesReleased=false
     private var recorder: AudioRecord?=null
     private var session: SoundSession?=null
     private data class CapturedWindow(val samples: FloatArray,val mono: Long,val wall: Long,val rms: Double)
@@ -57,7 +59,7 @@ class MonitorService : Service() {
             (Build.VERSION.SDK_INT>=33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED) || !visibleNotifications()) {
             status.value="Error"; error.value="Microphone and visible notifications are required"; stopSelf(); return START_NOT_STICKY
         }
-        if(worker!=null) return START_NOT_STICKY
+        if(worker!=null || finishing.value) return START_NOT_STICKY
         val stop=PendingIntent.getService(this,1,Intent(this,MonitorService::class.java).setAction("STOP"),PendingIntent.FLAG_IMMUTABLE)
         val open=PendingIntent.getActivity(this,0,Intent(this,MainActivity::class.java),PendingIntent.FLAG_IMMUTABLE)
         val notification=Notification.Builder(this,MONITOR).setSmallIcon(android.R.drawable.ic_btn_speak_now)
@@ -105,7 +107,7 @@ class MonitorService : Service() {
                                 val updates=live.value.toMutableMap()
                                 rules.filter { it.enabled && it.condition is Condition.Audio && it.unavailableReason(true)==null }.forEach { rule ->
                                     val c=rule.condition as Condition.Audio
-                                    val update=decision.evaluate(rule,SoundCatalog.score(c.eventType,result.scores),mono,wall,window.rms,result.scores.filter { it.classId in requireNotNull(SoundCatalog.event(c.eventType)).classIds }.maxByOrNull { it.score }?.classId)
+                                    val update=decision.evaluate(rule,SoundCatalog.score(c.eventType,result.scores,c.classId),mono,wall,window.rms,result.scores.filter { it.classId in requireNotNull(SoundCatalog.event(c.eventType)).classIds && (c.classId==null || it.classId==c.classId) }.maxByOrNull { it.score }?.classId)
                                     updates[rule.id]=update
                                     update.ended?.let { persist(it,rules,false,open) }; update.started?.let { persist(it,rules,true,open) }
                                 }
@@ -147,14 +149,14 @@ class MonitorService : Service() {
                     }
                 }
             } catch(e: CancellationException) { throw e }
-            catch(e: Exception) { captureError=e.message }
+            catch(e: Exception) { if(currentCoroutineContext().isActive) captureError=e.message }
             finally {
                 queue.close(); inference?.cancel()
                 withContext(NonCancellable) {
                     inference?.join(); stopCapture(); recorder?.release(); recorder=null
                     withContext(Dispatchers.Main) {
                         engine?.finish(SystemClock.elapsedRealtime())?.forEach { persist(it,Store.rules(this@MonitorService),false,open) }
-                        engine?.close(); session=null
+                        engine?.close(); session=null; resourcesReleased=true; finishing.value=false
                         if(generation==run) {
                             active.value=false; level.doubleValue=0.0; modelLoaded.value=false; top.value=emptyList(); live.value=emptyMap()
                             status.value=if(captureError!=null) "Error" else "Stopped"
@@ -189,6 +191,7 @@ class MonitorService : Service() {
         Store.saveEvent(this,episode.toLocalEvent(rule,Store.localDeviceId(this),notificationStatus,old?.label))
     }
     override fun onDestroy() {
+        finishing.value=worker!=null && !resourcesReleased
         generation++; stopCapture(); worker?.cancel(); scope.cancel(); active.value=false; level.doubleValue=0.0; modelLoaded.value=false; top.value=emptyList(); live.value=emptyMap()
         if(status.value!="Error") status.value="Stopped"
         stopForeground(STOP_FOREGROUND_REMOVE); super.onDestroy()

@@ -60,7 +60,12 @@ object Store {
             prefs(context).edit().putString("rules_quarantine",raw.toString()).apply()
             error.value="Unsupported/corrupt rules retained in quarantine: ${e.message}"; null
         } }
-        if(raw.any { "schema_version" !in it.jsonObject } && decoded.size==raw.size) {
+        if(decoded.size>128) {
+            prefs(context).edit().putString("rules_quarantine",raw.toString()).apply()
+            error.value="Rule limit exceeded: evaluating first 128 only; all originals retained in quarantine"
+            return decoded.take(128)
+        }
+        if(raw.any { it is JsonObject && "schema_version" !in it } && decoded.size==raw.size) {
             prefs(context).edit().putString("rules_v02_backup",raw.toString()).apply()
             saveRules(context,decoded)
         }

@@ -107,14 +107,14 @@ def evaluate(data, thresholds=(.3,.5,.7,.9), alpha=.5, duration=3000, gap=1000, 
                 if overlap>0: matched.add(index);true_positive+=1
             episode_report[event]=dict(**metrics(true_positive,len(predicted)-true_positive,len(truth)-true_positive),predicted_episodes=predicted,matching='one-to-one positive time overlap within same clip')
         reports.append(dict(threshold=threshold,frame_metrics=frame_report,temporal_metrics=episode_report))
-    return dict(schema_version=1,dataset=data['dataset'],kind=data['kind'],calibration='incomplete',
+    return dict(schema_version=1,dataset=data['dataset'],kind=data['kind'],partition=data.get('partition','unspecified'),calibration='incomplete',
                 score_semantics='uncalibrated model output, not real-world probability',
                 temporal=dict(ema_alpha=alpha,min_duration_ms=duration,max_gap_ms=gap,cooldown_ms=cooldown),
                 limitation='Synthetic data verifies software only. Real scores are dataset-specific and do not establish deployment calibration.',
                 threshold_sweep=reports)
 
 
-def infer_wavs(manifest_path, model_path):
+def infer_wavs(manifest_path, model_path, split="test"):
     """Manifest: kind/dataset/recordings[{path,clip_id,labels,source_id,split,fold}]. No model download."""
     import numpy as np
     from scipy.io import wavfile
@@ -126,8 +126,14 @@ def infer_wavs(manifest_path, model_path):
     interpreter=Interpreter(model_path=str(model_path),num_threads=2);interpreter.allocate_tensors()
     ins,outs=interpreter.get_input_details()[0],interpreter.get_output_details()[0]
     if ins['shape'].tolist()!=[15600] or outs['shape'].tolist()!=[1,521]: raise ValueError('Wrong model tensors')
+    groups={}
+    for row in manifest['recordings']:
+        if row['source_id'] in groups and groups[row['source_id']]!=row['split']:
+            raise ValueError('Recording source leaks across splits')
+        groups[row['source_id']]=row['split']
     frames=[]
     for row in manifest['recordings']:
+        if row['split']!=split: continue
         path=Path(manifest_path).parent/row['path'];rate,samples=wavfile.read(path)
         if samples.dtype!=np.int16: raise ValueError('Expected signed PCM16 WAV')
         samples=samples.astype(np.float32)/32768
@@ -137,18 +143,19 @@ def infer_wavs(manifest_path, model_path):
             interpreter.set_tensor(ins['index'],samples[start:start+15600]);interpreter.invoke();values=interpreter.get_tensor(outs['index'])[0]
             frames.append(dict(clip_id=row['clip_id'],time_ms=(start+15600)*1000//16000,
                 scores={e:max(float(values[c['index']]) for c in classes) for e,classes in mapping['events'].items()},labels=row['labels']))
-    return dict(kind=manifest['kind'],dataset=manifest['dataset'],frames=frames,recordings=manifest['recordings'],truth_episodes=manifest.get('truth_episodes',[]))
+    return dict(kind=manifest['kind'],dataset=manifest['dataset'],partition=split,frames=frames,recordings=manifest['recordings'],truth_episodes=manifest.get('truth_episodes',[]))
 
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     group=parser.add_mutually_exclusive_group(required=True);group.add_argument('--scores',type=Path);group.add_argument('--audio-manifest',type=Path)
+    parser.add_argument('--split',choices=['validation','test'],default='test')
     parser.add_argument('--model',type=Path,default=Path(__file__).resolve().parents[1]/'android/app/src/main/assets/yamnet.tflite')
     parser.add_argument('--report',type=Path,required=True);parser.add_argument('--thresholds',default='0.3,0.5,0.7,0.9')
     parser.add_argument('--alpha',type=float,default=.5);parser.add_argument('--duration-ms',type=int,default=3000)
     parser.add_argument('--gap-ms',type=int,default=1000);parser.add_argument('--cooldown-ms',type=int,default=30000)
     args=parser.parse_args()
-    data=json.loads(args.scores.read_text()) if args.scores else infer_wavs(args.audio_manifest,args.model)
+    data=json.loads(args.scores.read_text()) if args.scores else infer_wavs(args.audio_manifest,args.model,args.split)
     report=evaluate(data,tuple(map(float,args.thresholds.split(','))),args.alpha,args.duration_ms,args.gap_ms,args.cooldown_ms)
     args.report.parent.mkdir(exist_ok=True,parents=True);args.report.write_text(json.dumps(report,indent=2,allow_nan=False)+'\n')
 

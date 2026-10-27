@@ -1,6 +1,6 @@
 import './style.css';
 import type { Device, Rule, AuraEvent, Status } from './contracts';
-import { escapeHtml as esc, eventLabel, ruleText, eventTitle, soundTypes, typedRule } from './helpers.mjs';
+import { escapeHtml as esc, eventLabel, ruleText, eventTitle, soundTypes, typedRule, classMap } from './helpers.mjs';
 
 const root = document.querySelector<HTMLDivElement>('#app')!;
 let token = ''; // Memory only: refresh deliberately locks the dashboard.
@@ -42,6 +42,7 @@ function render() {
   ${selected === 'Overview' || selected === 'Rules' ? `<section class="panel"><div class="section-title"><h2>Rule builder</h2><span>LOCAL SIGNALS</span></div><p class="muted">Tell AURA when to notify you.</p><form id="rule-form"><label>Deploy to<select name="device_id" required>${options}</select></label><label>Monitoring rule<textarea name="text" required maxlength="240">${ruleText(0.15)}</textarea></label><button ${devices.length ? '' : 'disabled'}>Create rule ↗</button></form><hr><h3>${editing ? 'Edit typed rule' : 'Typed sound rule'}</h3><form id="typed-rule-form">
   <label>Typed rule device<select name="device_id" required>${devices.map(d => `<option value="${esc(d.id)}" ${editing?.source.device_id === d.id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select></label>
   <label>Event type<select name="event_type">${Object.entries({rms_above:'RMS amplitude',...soundTypes}).map(([id,label]) => `<option value="${id}" ${(editing?.condition.type === 'rms_above' ? id === 'rms_above' : id === (editing?.condition.event_type ?? 'dog_bark')) ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
+  <label>Class ID filter (blank = max of mapped classes)<input name="class_id" value="${editing?.condition.type === 'audio_event' ? esc(editing.condition.class_id ?? '') : ''}" placeholder="e.g. /m/05tny_"></label>
   <label>Activation threshold<input name="threshold" type="number" min="0.01" max="1" step="0.01" value="${editing?.condition.type === 'rms_above' ? editing.condition.threshold : editing?.condition.min_score ?? .7}" required></label>
   <label>Release score<input name="release" type="number" min="0" max="0.99" step="0.01" value="${editing?.condition.type === 'audio_event' ? editing.condition.release_score : .5}" required></label>
   <label>Persistence ms<input name="persistence" type="number" min="0" max="60000" value="${editing?.condition.type === 'audio_event' ? editing.condition.min_duration_ms : 3000}" required></label>
@@ -56,7 +57,7 @@ function render() {
   bindForm('device-form', data => api('devices','POST',{name: data.get('name'), kind: data.get('kind')}));
   bindForm('rule-form', data => api('rules','POST',{device_id:data.get('device_id'), text:data.get('text')}));
   bindForm('typed-rule-form', data => {
-    const value = typedRule(String(data.get('device_id')),String(data.get('event_type')),Number(data.get('threshold')),Number(data.get('persistence')),Number(data.get('gap')),Number(data.get('cooldown')),Number(data.get('release')),editing?.condition.type === 'rms_above' ? editing.condition.legacy_repeat : false);
+    const value = typedRule(String(data.get('device_id')),String(data.get('event_type')),Number(data.get('threshold')),Number(data.get('persistence')),Number(data.get('gap')),Number(data.get('cooldown')),Number(data.get('release')),editing?.condition.type === 'rms_above' ? editing.condition.legacy_repeat : false,String(data.get('class_id') ?? '').trim() || null);
     if (editing) { value.enabled = editing.enabled; value.policy.notify = editing.policy.notify; if(value.condition.type === 'audio_event' && editing.condition.type === 'audio_event') value.condition.ema_alpha = editing.condition.ema_alpha; }
     return api(editing ? `v2/rules/${editing.id}` : 'v2/rules',editing ? 'PUT' : 'POST',value).then(() => { editing = null; });
   });

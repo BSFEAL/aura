@@ -21,3 +21,7 @@ test('sound event title and provenance never imply verified certainty', () => {
   assert.equal(eventLabel({provenance:'simulated'}),'SIMULATED');
   assert.ok(!eventTitle({event_type:'<script>'}).includes('<script>'));
 });
+test('per-class threshold scope validates the actual model ID', () => {
+  assert.equal(typedRule('phone','alarm_siren',.8,1000,1000,30000,.5,false,'/m/03kmc9').condition.class_id,'/m/03kmc9');
+  assert.throws(()=>typedRule('phone','rain',.7,1000,1000,30000,.5,false,'/m/05tny_'));
+});

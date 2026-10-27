@@ -66,10 +66,11 @@ object SoundCatalog {
         EventClass("doorbell", "Doorbell sound", setOf("/m/03wwcy"))
     )
     fun event(id: String) = events.firstOrNull { it.id == id }
-    fun score(id: String, scores: List<ClassScore>): Float {
+    fun score(id: String, scores: List<ClassScore>, classId: String?=null): Float {
         val event = requireNotNull(event(id)) { "Unsupported sound event" }
+        require(classId==null || classId in event.classIds)
         require(scores.all { it.score.isFinite() && it.score in 0f..1f }) { "Invalid model score" }
-        return scores.filter { it.classId in event.classIds }.maxOfOrNull { it.score } ?: 0f
+        return scores.filter { it.classId in event.classIds && (classId==null || it.classId==classId) }.maxOfOrNull { it.score } ?: 0f
     }
 }
 

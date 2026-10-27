@@ -17,7 +17,8 @@ import kotlinx.serialization.json.*
         @SerialName("ema_alpha") val emaAlpha: Float = .5f,
         @SerialName("model_version") val modelVersion: String = ModelSpec.VERSION,
         @SerialName("mapping_version") val mappingVersion: String = ModelSpec.MAPPING,
-        @SerialName("threshold_version") val thresholdVersion: String = ModelSpec.THRESHOLDS
+        @SerialName("threshold_version") val thresholdVersion: String = ModelSpec.THRESHOLDS,
+        @SerialName("class_id") val classId: String? = null
     ) : Condition()
 }
 @Serializable data class Policy(@SerialName("cooldown_ms") val cooldownMs: Long = 30000, val notify: Boolean = true)
@@ -39,6 +40,7 @@ import kotlinx.serialization.json.*
             is Condition.Rms -> require(c.threshold.isFinite() && c.threshold>0 && c.threshold<=1)
             is Condition.Audio -> {
                 require(SoundCatalog.event(c.eventType)!=null)
+                require(c.classId==null || c.classId in requireNotNull(SoundCatalog.event(c.eventType)).classIds)
                 require(c.minScore.isFinite() && c.minScore in .01f..1f && c.releaseScore.isFinite() && c.releaseScore>=0 && c.releaseScore<c.minScore)
                 require(c.minDurationMs in 0..60000 && c.maxGapMs in 0..10000 && c.emaAlpha.isFinite() && c.emaAlpha in .01f..1f)
                 require(c.modelVersion.length in 1..80 && c.mappingVersion.length in 1..80 && c.thresholdVersion.length in 1..80)

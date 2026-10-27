@@ -310,7 +310,7 @@ def insert_typed_event(data: TypedEventInput, force_simulated=False):
             if condition["type"]=="rms_above":
                 if data.event_type!="rms_above" or data.rms<=condition["threshold"]:
                     raise HTTPException(422,"RMS rule condition not satisfied")
-            elif data.event_type!=condition["event_type"] or (data.peak_score or 0)<condition["min_score"]:
+            elif data.event_type!=condition["event_type"] or (condition.get("class_id") is not None and data.class_id!=condition["class_id"]) or (data.peak_score or 0)<condition["min_score"]:
                 raise HTTPException(422,"Reported metadata does not match rule")
         if data.client_event_id:
             old=c.execute("SELECT * FROM events WHERE device_id=? AND client_event_id=?",(data.device_id,data.client_event_id)).fetchone()

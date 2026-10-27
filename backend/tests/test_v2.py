@@ -102,3 +102,12 @@ def test_typed_rms_round_trip(client):
     result=client.post('/api/v2/events',json=value)
     assert result.status_code==201,result.text
     assert len(client.get('/api/events').json())==1
+
+def test_class_specific_threshold_scope(client):
+    d=device(client)
+    value=rule(d);value['condition'].update(event_type='alarm_siren',class_id='/m/03kmc9')
+    created=client.post('/api/v2/rules',json=value)
+    assert created.status_code==201,created.text
+    assert created.json()['condition']['class_id']=='/m/03kmc9'
+    value['condition']['class_id']='/m/05tny_'
+    assert client.post('/api/v2/rules',json=value).status_code==422

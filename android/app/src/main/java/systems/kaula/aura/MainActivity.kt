@@ -55,20 +55,23 @@ class MainActivity : ComponentActivity() {
         val revision=Store.revision.intValue
         val rules=remember(revision) { Store.rules(this) }
         val events=remember(revision) { Store.events(this) }
-        Scaffold { padding ->
-            Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(padding).verticalScroll(rememberScrollState()).padding(20.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
+        Scaffold(topBar={
+            Column(Modifier.background(MaterialTheme.colorScheme.background).statusBarsPadding().padding(horizontal=20.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                 Text("AURA ◌",style=MaterialTheme.typography.headlineLarge,color=MaterialTheme.colorScheme.primary)
                 Text("SOUND INTELLIGENCE · by kaula.systems · v0.3",style=MaterialTheme.typography.labelSmall)
                 Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     listOf("Dashboard","Live","Rules","Events","Diagnostics","Devices","Alerts").forEach { page -> FilterChip(selected=tab==page,onClick={tab=page},label={Text(page)}) }
                 }
+            }
+        }) { padding ->
+            Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(padding).verticalScroll(rememberScrollState()).padding(20.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
                 Text(tab,style=MaterialTheme.typography.headlineSmall)
                 Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                     Text("${MonitorService.status.value} · ${if(MonitorService.active.value) "Microphone in use" else "Microphone off"}",color=MaterialTheme.colorScheme.primary)
                     Text("Uncalibrated RMS %.3f".format(MonitorService.level.doubleValue))
                     Text(if(MonitorService.modelLoaded.value) "On-device YAMNet inference · no audio upload" else "Classifier inactive/unavailable · RMS remains independent",style=MaterialTheme.typography.labelMedium)
                     if(MonitorService.active.value) Button(onClick={stopService(Intent(this@MainActivity,MonitorService::class.java))}) { Text("Stop monitoring") }
-                    else Button(enabled=!syncing,onClick={startMonitoring()}) { Text("Start monitoring") }
+                    else Button(enabled=!syncing && !MonitorService.finishing.value,onClick={startMonitoring()}) { Text("Start monitoring") }
                 } }
                 if(MonitorService.error.value.isNotBlank()) Text(MonitorService.error.value,color=MaterialTheme.colorScheme.secondary)
                 if(Store.error.value.isNotBlank()) Text(Store.error.value,color=MaterialTheme.colorScheme.error)
@@ -132,7 +135,7 @@ class MainActivity : ComponentActivity() {
                         OutlinedTextField(value=base,onValueChange={base=it},label={Text("HTTPS backend URL")},modifier=Modifier.fillMaxWidth())
                         OutlinedTextField(value=token,onValueChange={token=it},label={Text("API token (not saved)")},visualTransformation=PasswordVisualTransformation(),modifier=Modifier.fillMaxWidth())
                         OutlinedTextField(value=deviceId,onValueChange={deviceId=it},label={Text("Device ID; blank registers phone")},modifier=Modifier.fillMaxWidth())
-                        Button(enabled=!syncing && !MonitorService.active.value,onClick={
+                        Button(enabled=!syncing && !MonitorService.active.value && !MonitorService.finishing.value,onClick={
                             syncing=true
                             val b=base; val t=token; val d=deviceId
                             scope.launch {
@@ -156,6 +159,7 @@ class MainActivity : ComponentActivity() {
         var editing by remember { mutableStateOf<LocalRule?>(null) }
         var eventType by remember { mutableStateOf("rms_above") }
         var value by remember { mutableStateOf("0.15") }
+        var classId by remember { mutableStateOf<String?>(null) }
         var release by remember { mutableStateOf("0.5") }
         var persistence by remember { mutableStateOf("3000") }
         var gap by remember { mutableStateOf("1000") }
@@ -165,10 +169,15 @@ class MainActivity : ComponentActivity() {
         var natural by remember { mutableStateOf("Notify me when sound level is above 0.15") }
         Text(if(editing==null) "Create a typed rule" else "Edit ${editing?.label}",style=MaterialTheme.typography.titleMedium)
         Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-            (listOf("rms_above" to "RMS")+SoundCatalog.events.map { it.id to it.label }).forEach { (id,label) -> FilterChip(selected=eventType==id,onClick={eventType=id;value=if(id=="rms_above") "0.15" else "0.7"},label={Text(label)}) }
+            (listOf("rms_above" to "RMS")+SoundCatalog.events.map { it.id to it.label }).forEach { (id,label) -> FilterChip(selected=eventType==id,onClick={eventType=id;classId=null;value=if(id=="rms_above") "0.15" else "0.7"},label={Text(label)}) }
         }
         OutlinedTextField(value=value,onValueChange={value=it},label={Text(if(eventType=="rms_above") "RMS threshold" else "Activation score (provisional)")},modifier=Modifier.fillMaxWidth())
         if(eventType!="rms_above") {
+            Text("Per-class threshold scope (all mapped classes use max score by default)")
+            Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected=classId==null,onClick={classId=null},label={Text("All mapped classes")})
+                SoundCatalog.event(eventType)?.classIds?.sorted()?.forEach { id -> FilterChip(selected=classId==id,onClick={classId=id},label={Text(id)}) }
+            }
             OutlinedTextField(value=release,onValueChange={release=it},label={Text("Release score (< activation)")},modifier=Modifier.fillMaxWidth())
             OutlinedTextField(value=persistence,onValueChange={persistence=it},label={Text("Persistence ms (0–60000)")},modifier=Modifier.fillMaxWidth())
             OutlinedTextField(value=gap,onValueChange={gap=it},label={Text("Max gap ms (0–10000)")},modifier=Modifier.fillMaxWidth())
@@ -179,7 +188,7 @@ class MainActivity : ComponentActivity() {
         Row { Text("Notify for this rule",Modifier.weight(1f)); Switch(checked=notify,onCheckedChange={notify=it}) }
         Button(enabled=!MonitorService.active.value,onClick={
             try {
-                val condition=if(eventType=="rms_above") Condition.Rms(value.toDouble()) else Condition.Audio(eventType,value.toFloat(),release.toFloat(),persistence.toLong(),gap.toLong(),alpha.toFloat())
+                val condition=if(eventType=="rms_above") Condition.Rms(value.toDouble(),(editing?.condition as? Condition.Rms)?.legacyRepeat ?: false) else Condition.Audio(eventType,value.toFloat(),release.toFloat(),persistence.toLong(),gap.toLong(),alpha.toFloat(),classId=classId)
                 val rule=LocalRule(id=editing?.id ?: UUID.randomUUID().toString(),enabled=editing?.enabled ?: true,source=editing?.source ?: Source(Store.localDeviceId(this@MainActivity)),condition=condition,policy=Policy(cooldown.toLong(),notify),remote=editing?.remote ?: false).validate()
                 Store.saveRules(this@MainActivity,rules.filter { it.id!=rule.id }+rule);editing=null;onMessage("Rule saved; microphone activation remains manual")
             } catch(_: Exception) { onMessage("Invalid rule. Check finite scores, release < activation, duration/gap/cooldown ranges and selected capability.") }
@@ -190,7 +199,7 @@ class MainActivity : ComponentActivity() {
         Button(enabled=!MonitorService.active.value,onClick={
             val threshold=Signal.parseRule(natural)
             if(threshold==null) onMessage("Supported: Notify me when sound level is above 0.15")
-            else try { Store.saveRules(this@MainActivity,rules+LocalRule(id=UUID.randomUUID().toString(),condition=Condition.Rms(threshold,true),text=natural));onMessage("RMS rule saved") } catch(e: Exception) { onMessage(e.message ?: "Could not save") }
+            else try { Store.saveRules(this@MainActivity,rules+LocalRule(id=UUID.randomUUID().toString(),source=Source(Store.localDeviceId(this@MainActivity)),condition=Condition.Rms(threshold,true),text=natural));onMessage("RMS rule saved") } catch(e: Exception) { onMessage(e.message ?: "Could not save") }
         }) { Text("Create local RMS rule") }
         rules.forEach { rule -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) {
             Text(rule.label,style=MaterialTheme.typography.titleMedium)
@@ -202,7 +211,7 @@ class MainActivity : ComponentActivity() {
                     editing=rule;cooldown=rule.policy.cooldownMs.toString();notify=rule.policy.notify
                     when(val c=rule.condition) {
                         is Condition.Rms -> { eventType="rms_above";value=c.threshold.toString() }
-                        is Condition.Audio -> { eventType=c.eventType;value=c.minScore.toString();release=c.releaseScore.toString();persistence=c.minDurationMs.toString();gap=c.maxGapMs.toString();alpha=c.emaAlpha.toString() }
+                        is Condition.Audio -> { eventType=c.eventType;classId=c.classId;value=c.minScore.toString();release=c.releaseScore.toString();persistence=c.minDurationMs.toString();gap=c.maxGapMs.toString();alpha=c.emaAlpha.toString() }
                     }
                 }) { Text("Edit") }
                 TextButton(onClick={Store.saveRules(this@MainActivity,rules.filter { it.id!=rule.id })}) { Text("Delete") }
