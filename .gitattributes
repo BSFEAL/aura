@@ -1,2 +1,7 @@
 * text=auto
 *.bat text eol=crlf
+
+# Preserve upstream label-map bytes for model integrity verification.
+android/app/src/main/assets/yamnet_class_map.csv -text -diff
+*.tflite -text
+*.pcm -text
