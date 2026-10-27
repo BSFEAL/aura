@@ -3,7 +3,6 @@ package systems.kaula.aura
 import android.content.ContentValues
 import android.provider.MediaStore
 import android.graphics.Bitmap
-import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -27,7 +26,10 @@ class AdaptiveDesignTest {
         compose.waitForIdle()
         // Scoped-storage-safe export of test PNGs; no storage permission or app code added.
         val bytes=ByteArrayOutputStream().use { output ->
-            assertTrue(compose.onNodeWithTag("aura-app").captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG,100,output))
+            compose.onNodeWithTag("aura-app").assertIsDisplayed()
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            val bitmap=requireNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
+            try { assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG,100,output)) } finally { bitmap.recycle() }
             output.toByteArray()
         }
         val resolver=compose.activity.contentResolver
