@@ -32,6 +32,13 @@ class UiLifecycleTest {
         compose.waitUntil(5000) {
             compose.activity.window.decorView.rootWindowInsets?.isVisible(android.view.WindowInsets.Type.ime())!=true
         }
+        val committed=java.util.concurrent.CountDownLatch(1)
+        compose.runOnIdle {
+            val decor=compose.activity.window.decorView
+            decor.viewTreeObserver.registerFrameCommitCallback { committed.countDown() }
+            decor.invalidate()
+        }
+        assertTrue("Keyboard-dismissed window must commit before touch",committed.await(10,java.util.concurrent.TimeUnit.SECONDS))
     }
     @Test fun backupControlsAreVisibleWithoutStartingMonitoring() {
         compose.onAllNodesWithText("Settings").onFirst().performClick()
@@ -139,12 +146,14 @@ class UiLifecycleTest {
             compose.onNodeWithText("What should AURA monitor?").performScrollTo().performTextReplacement("Notify me about my pet")
             dismissKeyboard()
             compose.onNodeWithContentDescription("Consent to OpenAI rule text sharing").performScrollTo().performClick()
-            compose.onNodeWithText("Send to OpenAI").performScrollTo().performClick()
+            compose.onNodeWithContentDescription("Consent to OpenAI rule text sharing").assertIsOn()
+            compose.onNodeWithText("Send to OpenAI").performScrollTo().assertIsEnabled().performClick()
             compose.waitUntil(10000) { calls.get()==1 }
             compose.onNodeWithText("Save disabled rule").assertDoesNotExist()
             compose.onNodeWithText("What should AURA monitor?").performScrollTo().performTextReplacement("Dog barking for 2 seconds, 45 seconds cooldown")
             dismissKeyboard()
-            compose.onNodeWithText("Send to OpenAI").performScrollTo().performClick()
+            compose.onNodeWithContentDescription("Consent to OpenAI rule text sharing").assertIsOn()
+            compose.onNodeWithText("Send to OpenAI").performScrollTo().assertIsEnabled().performClick()
             compose.waitUntil(10000) { calls.get()==2 }
             compose.onNodeWithText("Review proposed rule").performScrollTo().assertIsDisplayed()
             assertEquals(originals,Store.rules(compose.activity))
