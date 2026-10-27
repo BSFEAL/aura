@@ -50,18 +50,27 @@ class UiLifecycleTest {
         compose.waitUntil(20000) { !MonitorService.finishing.value }
         assertFalse("Stopped service notification must be removed",manager.activeNotifications.any { it.id==1 })
     }
+    @Test fun selectingAnotherProviderResetsConsent() {
+        compose.onAllNodesWithText("Rules").onFirst().performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Consent to OpenAI rule text sharing").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Consent to OpenAI rule text sharing").assertIsOn()
+        compose.onNodeWithText("Anthropic",useUnmergedTree=true).performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Consent to Anthropic rule text sharing").performScrollTo().assertIsOff()
+        compose.onNodeWithText("Send text to Anthropic & preview").performScrollTo().assertIsNotEnabled()
+        assertFalse(MonitorService.active.value)
+    }
     @Test fun naturalPreviewRequiresConsentAndExplicitDisabledSave() {
         val originals=Store.rules(compose.activity)
         val originalFactory=MainActivity.rulePlannerFactory
         val calls=java.util.concurrent.atomic.AtomicInteger()
         try {
-            MainActivity.rulePlannerFactory={_,_,_-> RulePlanner { request ->
+            MainActivity.rulePlannerFactory={_,_,_,_-> RulePlanner { request ->
                 calls.incrementAndGet()
                 RulePlan.Ready(RuleDraft(request,Condition.Audio("dog_bark",minDurationMs=2000),Policy(),listOf("Synthetic UI proposal only"),"mock-planner-test"))
             } }
             compose.onAllNodesWithText("Rules").onFirst().performScrollTo().performClick()
             compose.onNodeWithText("Private HTTPS backend URL").performScrollTo().performTextReplacement("https://private.invalid")
-            compose.onNodeWithText("AURA API token (not the OpenAI key)").performScrollTo().performTextReplacement("test-aura-token-at-least-24")
+            compose.onNodeWithText("AURA API token (not a provider key)").performScrollTo().performTextReplacement("test-aura-token-at-least-24")
             compose.onNodeWithTag("natural-rule-examples").performScrollTo().assertIsDisplayed()
             compose.onNodeWithText("Barking example").performClick()
             compose.onNodeWithText("What should AURA monitor?").assertTextContains("Notify me when my dog barks for 2 seconds, with a cooldown of 30 seconds")

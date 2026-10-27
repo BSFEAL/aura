@@ -1,4 +1,4 @@
-"""Explicit text-only OpenAI planning. Never writes rules or controls sensors."""
+"""Explicit text-only OpenAI or Anthropic planning. Never writes rules or controls sensors."""
 import asyncio
 from contextlib import asynccontextmanager
 import json
@@ -8,12 +8,14 @@ from typing import Annotated, Literal
 
 import httpx
 from fastapi import HTTPException
-from pydantic import ConfigDict, Field, field_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 from contracts_v2 import Strict, TypedRuleInput, EVENT_CLASSES
 
 MODEL = 'gpt-4.1-mini-2025-04-14'
 PLANNER = 'aura-openai-rule-planner-v1'
 URL = 'https://api.openai.com/v1/responses'
+ANTHROPIC_MODEL = 'claude-sonnet-4-6'
+ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
 MAX_BYTES = 262144
 SLOTS = asyncio.Semaphore(2)
 CLASS_LABELS = {'/m/05tny_':'Bark','/m/07pp_mv':'Alarm','/m/03kmc9':'Siren','/m/06mb1':'Rain','/m/07r10fb':'Raindrop',
@@ -25,14 +27,22 @@ class PreviewInput(Strict):
     schema_version: Literal[2] = 2
     device_id: str = Field(min_length=1,max_length=80,strict=True)
     text: str = Field(min_length=1,max_length=240,strict=True)
-    consent_to_openai: Literal[True]
+    provider: Literal['openai','anthropic'] = 'openai'
+    consent_to_openai: Literal[True] | None = None
+    consent_to_anthropic: Literal[True] | None = None
 
-    @field_validator('consent_to_openai',mode='before')
+    @field_validator('consent_to_openai','consent_to_anthropic',mode='before')
     @classmethod
     def explicit_consent(cls,value):
-        if value is not True:
+        if value is not True and value is not None:
             raise ValueError('Explicit consent is required')
         return value
+
+    @model_validator(mode='after')
+    def selected_provider_consent(self):
+        if getattr(self,'consent_to_'+self.provider) is not True or getattr(self,'consent_to_'+('anthropic' if self.provider=='openai' else 'openai')) is not None:
+            raise ValueError('Consent must name only the selected provider')
+        return self
 
 class LlmOutput(Strict):
     model_config = ConfigDict(extra='forbid',strict=True)
@@ -57,8 +67,8 @@ class ClassMapping(Strict):
 class ReadyPreview(Strict):
     schema_version: Literal[2] = 2
     status: Literal['ready'] = 'ready'
-    mode: Literal['openai'] = 'openai'
-    planner_version: Literal['aura-openai-rule-planner-v1'] = PLANNER
+    mode: Literal['openai','anthropic'] = 'openai'
+    planner_version: Literal['aura-openai-rule-planner-v1','aura-anthropic-rule-planner-v1'] = PLANNER
     planner_model: str
     proposal: TypedRuleInput
     classes: list[ClassMapping]
@@ -67,8 +77,8 @@ class ReadyPreview(Strict):
 class ClarificationPreview(Strict):
     schema_version: Literal[2] = 2
     status: Literal['clarification'] = 'clarification'
-    mode: Literal['openai'] = 'openai'
-    planner_version: Literal['aura-openai-rule-planner-v1'] = PLANNER
+    mode: Literal['openai','anthropic'] = 'openai'
+    planner_version: Literal['aura-openai-rule-planner-v1','aura-anthropic-rule-planner-v1'] = PLANNER
     planner_model: str
     message: str
 
@@ -117,7 +127,7 @@ def validated_preview(data: PreviewInput, output: LlmOutput, model: str):
     if output.status=='clarification':
         if output.event_type is not None or output.class_ids or any(getattr(output,k) is not None for k in ('rms_threshold','min_score','release_score','min_duration_ms','max_gap_ms','ema_alpha','cooldown_ms')) or output.notify:
             raise ValueError('Inconsistent clarification')
-        return ClarificationPreview(planner_model=model,message=output.message or 'Please clarify the requested sound and condition.')
+        return ClarificationPreview(mode=data.provider,planner_version=f'aura-{data.provider}-rule-planner-v1',planner_model=model,message=output.message or 'Please clarify the requested sound and condition.')
     if output.event_type is None or output.cooldown_ms is None:
         raise ValueError('Incomplete rule')
     if output.event_type=='rms_above':
@@ -135,22 +145,32 @@ def validated_preview(data: PreviewInput, output: LlmOutput, model: str):
     # Existing authoritative contracts enforce types, bounds, profile versions and hysteresis.
     rule=TypedRuleInput.model_validate(dict(enabled=False,source=dict(device_id=data.device_id),condition=condition,
         policy=dict(cooldown_ms=output.cooldown_ms,notify=output.notify),text=data.text))
-    return ReadyPreview(planner_model=model,proposal=rule,classes=[ClassMapping(class_id=key,label=CLASS_LABELS[key]) for key in sorted(output.class_ids)],
+    return ReadyPreview(mode=data.provider,planner_version=f'aura-{data.provider}-rule-planner-v1',planner_model=model,proposal=rule,classes=[ClassMapping(class_id=key,label=CLASS_LABELS[key]) for key in sorted(output.class_ids)],
         assumptions=output.assumptions+['LLM interpretation is unverified. Review the original request and every field before Save.',
             'Scores and thresholds are provisional, not calibrated probabilities.','Saved disabled; enable it yourself and Start monitoring explicitly.'])
 
 
 async def preview(data: PreviewInput, client: httpx.AsyncClient):
-    if os.getenv('AURA_LLM_ENABLED','').lower() not in ('1','true') or not os.getenv('OPENAI_API_KEY','').strip():
-        raise HTTPException(503,'OpenAI planner not configured. Set AURA_LLM_ENABLED=true and OPENAI_API_KEY on the backend. No rule saved.')
-    model=os.getenv('AURA_OPENAI_MODEL',MODEL)
+    provider=data.provider
+    name='Anthropic' if provider=='anthropic' else 'OpenAI'
+    key_name='ANTHROPIC_API_KEY' if provider=='anthropic' else 'OPENAI_API_KEY'
+    if os.getenv('AURA_LLM_ENABLED','').lower() not in ('1','true') or not os.getenv(key_name,'').strip():
+        raise HTTPException(503,f'{name} planner not configured. Set AURA_LLM_ENABLED=true and {key_name} on the backend. No rule saved.')
+    model=os.getenv('AURA_ANTHROPIC_MODEL',ANTHROPIC_MODEL) if provider=='anthropic' else os.getenv('AURA_OPENAI_MODEL',MODEL)
     if not re.fullmatch(r'[A-Za-z0-9._:-]{1,80}',model):
         raise HTTPException(503,'Invalid backend planner model configuration. No rule saved.')
     payload=dict(model=model,instructions=instructions(),input=[{'role':'user','content':[{'type':'input_text','text':data.text}]}],
         text={'format':{'type':'json_schema','name':'aura_rule_plan','strict':True,'schema':output_schema()}},max_output_tokens=1800,store=False)
+    url=URL
+    headers={'Authorization':'Bearer '+os.environ[key_name].strip()}
+    if provider=='anthropic':
+        url=ANTHROPIC_URL
+        headers={'x-api-key':os.environ[key_name].strip(),'anthropic-version':'2023-06-01'}
+        payload=dict(model=model,max_tokens=1800,system=instructions(),messages=[{'role':'user','content':data.text}],
+            output_config={'format':{'type':'json_schema','schema':output_schema()}})
     try:
         async with slot(), asyncio.timeout(25):
-            async with client.stream('POST',URL,headers={'Authorization':'Bearer '+os.environ['OPENAI_API_KEY'].strip()},json=payload) as response:
+            async with client.stream('POST',url,headers=headers,json=payload) as response:
                 if response.status_code!=200:
                     raise ValueError('Provider rejected request')
                 raw=bytearray()
@@ -159,6 +179,13 @@ async def preview(data: PreviewInput, client: httpx.AsyncClient):
                         raise ValueError('Provider response too large')
                     raw.extend(block)
         envelope=json.loads(raw)
+        if provider=='anthropic':
+            if envelope.get('stop_reason')!='end_turn' or envelope.get('type')!='message':
+                raise ValueError('Incomplete Anthropic response')
+            parts=envelope.get('content',[])
+            if not isinstance(parts,list) or len(parts)!=1 or parts[0].get('type')!='text':
+                raise ValueError('Expected one Anthropic JSON text block')
+            envelope=dict(status='completed',model=envelope.get('model'),output=[dict(type='message',content=[dict(type='output_text',text=part['text']) for part in envelope.get('content',[]) if part.get('type')=='text'])])
         if envelope.get('status')!='completed':
             raise ValueError('Incomplete provider response')
         actual_model=envelope.get('model')
@@ -167,7 +194,7 @@ async def preview(data: PreviewInput, client: httpx.AsyncClient):
         messages=[item for item in envelope.get('output',[]) if item.get('type')=='message']
         content=[part for item in messages for part in item.get('content',[])]
         if any(part.get('type')=='refusal' for part in content):
-            return ClarificationPreview(planner_model=actual_model,message='OpenAI declined this request. Please clarify a supported non-safety-critical audio rule.')
+            return ClarificationPreview(mode=provider,planner_version=f'aura-{provider}-rule-planner-v1',planner_model=actual_model,message=f'{name} declined this request. Please clarify a supported non-safety-critical audio rule.')
         texts=[part['text'] for part in content if part.get('type')=='output_text']
         if len(texts)!=1:
             raise ValueError('Expected one structured proposal')
@@ -177,4 +204,4 @@ async def preview(data: PreviewInput, client: httpx.AsyncClient):
         raise
     except (httpx.HTTPError,TimeoutError,ValueError,KeyError,TypeError,AttributeError,RecursionError):
         # Do not expose provider bodies, API keys or request text in errors/logs.
-        raise HTTPException(502,'OpenAI planning failed or returned an invalid rule. No rule saved. Retry or use the manual builder.') from None
+        raise HTTPException(502,f'{name} planning failed or returned an invalid rule. No rule saved. Retry or use the manual builder.') from None

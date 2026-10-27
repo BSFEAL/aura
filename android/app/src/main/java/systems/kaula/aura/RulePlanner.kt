@@ -14,8 +14,8 @@ data class RuleDraft(val request: String, val condition: Condition, val policy: 
     fun asDisabledRule(id: String, deviceId: String) = LocalRule(id=id,enabled=false,source=Source(deviceId),condition=condition,policy=policy,text=request).validate()
 }
 fun interface RulePlanner { suspend fun propose(request: String): RulePlan }
-class BackendRulePlanner(private val base: String, private val token: String, private val deviceId: String) : RulePlanner {
-    override suspend fun propose(request: String) = withContext(Dispatchers.IO) { Api.previewRule(base,token,request,deviceId,consent=true) }
+class BackendRulePlanner(private val base: String, private val token: String, private val deviceId: String, private val provider: String = "openai") : RulePlanner {
+    override suspend fun propose(request: String) = withContext(Dispatchers.IO) { Api.previewRule(base,token,request,deviceId,consent=true,provider=provider) }
 }
 @Serializable private data class PlannerClass(@SerialName("class_id") val classId: String,val label: String)
 @Serializable private data class PlannerEnvelope(
@@ -29,7 +29,7 @@ class BackendRulePlanner(private val base: String, private val token: String, pr
 /** Treat even authenticated-backend/LLM output as untrusted data. Never save from this decoder. */
 object RulePlanCodec {
     const val MAX_BYTES=262144
-    fun decode(text: String, request: String, deviceId: String): RulePlan {
+    fun decode(text: String, request: String, deviceId: String, expectedProvider: String? = null): RulePlan {
         require(text.toByteArray(Charsets.UTF_8).size<=MAX_BYTES)
         var depth=0;var quoted=false;var escaped=false
         text.forEach { c ->
@@ -39,7 +39,8 @@ object RulePlanCodec {
         }
         require(!quoted && depth==0)
         val envelope=RuleCodec.json.decodeFromString<PlannerEnvelope>(text)
-        require(envelope.schemaVersion==2 && envelope.mode=="openai" && envelope.plannerVersion=="aura-openai-rule-planner-v1")
+        require(envelope.schemaVersion==2 && envelope.mode in setOf("openai","anthropic") && envelope.plannerVersion=="aura-${envelope.mode}-rule-planner-v1")
+        require(expectedProvider==null || envelope.mode==expectedProvider)
         require(Regex("[A-Za-z0-9._:-]{1,80}").matches(envelope.plannerModel))
         if(envelope.status=="clarification") {
             require(envelope.proposal==null && envelope.classes.isEmpty() && envelope.assumptions.isEmpty())

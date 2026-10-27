@@ -8,7 +8,8 @@ import httpx
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--backend',default='http://127.0.0.1:8000')
-    parser.add_argument('--allow-send-text',action='store_true',help='Consent to send the built-in non-sensitive example to OpenAI through your backend (may incur API cost)')
+    parser.add_argument('--provider',choices=('openai','anthropic'),default='openai')
+    parser.add_argument('--allow-send-text',action='store_true',help='Consent to send the built-in non-sensitive example to the selected provider through your backend (may incur API cost)')
     args=parser.parse_args()
     if not args.allow_send_text:
         parser.error('--allow-send-text is required; no network request made')
@@ -21,7 +22,7 @@ def main():
     try:
         with httpx.Client(timeout=35,follow_redirects=False) as client:
             response=client.post(args.backend.rstrip('/')+'/api/v2/rules/preview',headers={'Authorization':'Bearer '+token},
-                json=dict(schema_version=2,device_id='local-smoke-phone',text='Notify me when my dog barks for 2 seconds',consent_to_openai=True))
+                json=dict(schema_version=2,device_id='local-smoke-phone',text='Notify me when my dog barks for 2 seconds',provider=args.provider,**{'consent_to_'+args.provider:True}))
         if response.status_code!=200:
             print('Planner smoke failed (HTTP '+str(response.status_code)+'). Check backend configuration; no rule saved.')
             return 1
@@ -31,7 +32,7 @@ def main():
             return 1
         proposal=value['proposal']
         condition=proposal.get('condition',{})
-        if (value.get('mode')!='openai' or condition.get('type')!='audio_event' or condition.get('event_type')!='dog_bark'
+        if (value.get('mode')!=args.provider or condition.get('type')!='audio_event' or condition.get('event_type')!='dog_bark'
                 or condition.get('min_duration_ms')!=2000 or value.get('classes')!=[{'class_id':'/m/05tny_','label':'Bark'}]
                 or proposal.get('source',{}).get('device_id')!='local-smoke-phone'):
             print('Live planner did not match the expected Bark class and 2-second persistence; no rule saved.')
