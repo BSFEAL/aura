@@ -44,6 +44,14 @@ Snapshot `e9f6929e069040340663e1129dbc983076628b27`:
 
 Android API 30 x86_64 **CI emulator**, 12 repeated fixture windows: model init **78 ms**, mean inference **3.25 ms**, nearest-rank p95 **4 ms**, process PSS **99,870 KiB** at measurement. These are emulator numbers, not physical-phone measurements, steady-state power or real-world detection accuracy. Machine-readable reports: `docs/measurements/v03-emulator-model.json` and `v03-host-model.json`. The Android benchmark uses integer-millisecond timings; the host report uses high-resolution timing. Always use the latest PR checks/artifact for final installation; the above link is a recorded verified snapshot.
 
+## Upgrade-safe build follow-up — 2026-10-27
+
+Adds optional retained debug signing for trusted main builds and a verified APK/certificate report in every downloadable APK artifact. Repository signing secrets could not be inspected or provisioned through this connection (GitHub HTTP 403); retained distribution remains dependent on administrator setup in `docs/ANDROID_SIGNING.md`. No compatibility with the user's currently installed ephemeral certificate is claimed.
+
+Executed locally on this follow-up: **38 Python tests**, **7 web unit tests**, **2 real-API browser integration tests**, TypeScript/production build, **13 Kotlin unit tests**, debug APK compilation and Android lint passed. Model integrity and actual host LiteRT inference passed (12 fixture windows, finite 521-class output). A separate real Gradle build used a disposable JKS outside the repository; `apksigner verify` passed and the resulting APK certificate matched the SHA-256 of the exported test certificate. The test key was deleted and that APK is not a distribution artifact. Tests also reject partial configuration, malformed keystores/fingerprints, certificate mismatch and multiple signers. Latest CI results are attached to the follow-up PR; Android emulator tests must complete there.
+
+Initial user feedback reports working dog-bark events. Device identity/settings and controlled observations are not yet recorded, so the physical matrix, calibration and battery validation remain pending.
+
 ## v0.3.1 local metadata backup follow-up — 2026-10-27
 
 Adds an explicit Storage Access Framework Backup screen, a bounded/versioned metadata format and merge-only restore. New restored rules are disabled/local with pinned profiles preserved; imported history is visibly restored/unverified and does not replay notifications. One preferences commit saves both collections after validation. File IO runs off the UI thread. No credentials, audio, networking or broad storage permission is added. Version code 4 / version name 0.3.1 retains the existing application ID.

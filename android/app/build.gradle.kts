@@ -17,6 +17,16 @@ android {
     }
     sourceSets.getByName("test").resources.srcDir("../../contracts")
     androidResources { noCompress += "tflite" }
+    // CI prepares this file outside the checkout. Never put signing material in Gradle properties.
+    val signingPath = providers.environmentVariable("AURA_SIGNING_STORE_FILE").orNull
+    if (signingPath != null) {
+        signingConfigs.getByName("debug") {
+            storeFile = file(signingPath)
+            storePassword = providers.environmentVariable("AURA_SIGNING_STORE_PASSWORD").get()
+            keyAlias = providers.environmentVariable("AURA_SIGNING_KEY_ALIAS").get()
+            keyPassword = providers.environmentVariable("AURA_SIGNING_KEY_PASSWORD").get()
+        }
+    }
     buildFeatures { compose = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
