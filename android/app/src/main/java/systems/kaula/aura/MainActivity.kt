@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -29,6 +30,7 @@ import java.util.Date
 import java.util.UUID
 
 class MainActivity : ComponentActivity() {
+    private val systemAlertsAllowed=mutableStateOf(true)
     private val fileBusy=mutableStateOf(false)
     private val backupMessage=mutableStateOf("")
     private val pendingRestore=mutableStateOf<LocalBackup?>(null)
@@ -77,6 +79,11 @@ class MainActivity : ComponentActivity() {
         if(!MonitorService.active.value) Store.recoverInterruptedEvents(this)
         setContent { MaterialTheme(colorScheme=darkColorScheme(primary=Color(0xFF54DCEB),secondary=Color(0xFF9296FF),background=Color(0xFF080E20),surface=Color(0xFF121E35))) { App() } }
     }
+    override fun onResume() {
+        super.onResume()
+        val manager=getSystemService(NotificationManager::class.java)
+        systemAlertsAllowed.value=manager.areNotificationsEnabled() && manager.getNotificationChannel(MonitorService.ALERTS)?.importance!=NotificationManager.IMPORTANCE_NONE
+    }
     @Composable private fun App() {
         var tab by remember { mutableStateOf("Dashboard") }
         var message by remember { mutableStateOf("") }
@@ -93,7 +100,7 @@ class MainActivity : ComponentActivity() {
         Scaffold(topBar={
             Column(Modifier.background(MaterialTheme.colorScheme.background).statusBarsPadding().padding(horizontal=20.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                 Text("AURA ◌",style=MaterialTheme.typography.headlineLarge,color=MaterialTheme.colorScheme.primary)
-                Text("SOUND INTELLIGENCE · by kaula.systems · v0.3.1",style=MaterialTheme.typography.labelSmall)
+                Text("SOUND INTELLIGENCE · by kaula.systems · v0.3.2",style=MaterialTheme.typography.labelSmall)
                 Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     listOf("Dashboard","Live","Rules","Events","Diagnostics","Backup","Devices","Alerts").forEach { page -> FilterChip(selected=tab==page,onClick={tab=page},label={Text(page)}) }
                 }
@@ -129,17 +136,29 @@ class MainActivity : ComponentActivity() {
                         Text("Live sound intelligence",style=MaterialTheme.typography.titleLarge)
                         Text("${ModelSpec.VERSION} · ${ModelSpec.MAPPING} · ${ModelSpec.THRESHOLDS}",style=MaterialTheme.typography.labelSmall)
                         Text("Top model outputs (uncalibrated scores)")
+                        Text("Live classifications alone do not alert. A matching enabled rule must satisfy its smoothed threshold, persistence and cooldown; notification settings then apply.")
                         if(MonitorService.top.value.isEmpty()) Text("Unknown / unconfirmed. Start monitoring to run local inference.")
                         MonitorService.top.value.forEach { score ->
                             Text("${score.label}: %.3f".format(score.score)); LinearProgressIndicator(progress={score.score},modifier=Modifier.fillMaxWidth())
                             Text(score.classId,style=MaterialTheme.typography.labelSmall)
+                            Text(RuleFeedback.coverage(score.classId,rules).message,style=MaterialTheme.typography.bodySmall)
                         }
-                        rules.forEach { rule -> MonitorService.live.value[rule.id]?.let { live ->
-                            Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) {
-                                Text(rule.label); Text("${live.phase} · persistence ${live.persistenceMs} ms")
-                                Text("Raw %.3f · EMA %.3f".format(live.raw,live.smoothed))
+                        if(rules.isEmpty()) Text("No rules yet. Stop monitoring, then create a sound rule in Rules.")
+                        Text("Rule evaluation · last processed window",style=MaterialTheme.typography.titleMedium)
+                        rules.forEach { rule ->
+                            val live=MonitorService.live.value[rule.id]
+                            val explanation=RuleFeedback.explain(rule,live,MonitorService.active.value,MonitorService.modelLoaded.value,starting=MonitorService.status.value=="Starting")
+                            Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
+                                Text(rule.label);Text(RuleFeedback.classes(rule),style=MaterialTheme.typography.labelSmall)
+                                Text(explanation.message)
+                                live?.let { Text("${it.phase} · Raw %.3f · EMA %.3f".format(it.raw,it.smoothed)) }
+                                explanation.progress?.let { progress -> LinearProgressIndicator(progress={progress},modifier=Modifier.fillMaxWidth()) }
+                                Text("Next new episode: "+RuleFeedback.notificationSetting(rule,alerts,systemAlertsAllowed.value),style=MaterialTheme.typography.bodySmall)
+                                events.firstOrNull { it.ruleId==rule.id }?.let { event ->
+                                    Text("Last episode notification: ${event.notificationStatus}. ${RuleFeedback.notificationHistory(event.notificationStatus)}",style=MaterialTheme.typography.labelSmall)
+                                }
                             } }
-                        } }
+                        }
                     }
                     "Rules" -> RuleEditor(rules,onMessage={message=it})
                     "Events" -> {
@@ -197,6 +216,15 @@ class MainActivity : ComponentActivity() {
                     }
                     "Alerts" -> {
                         Row { Text("Threshold and possible-sound alerts",Modifier.weight(1f)); Switch(modifier=Modifier.semantics { contentDescription="Threshold and possible-sound alerts" },checked=alerts,onCheckedChange={alerts=it;Store.notifications(this@MainActivity,it)}) }
+                        Text(if(systemAlertsAllowed.value) "Android alert requests available; audible sound and banners depend on channel settings, volume and Do Not Disturb." else "Android notifications or the experimental sound-event alert channel are blocked.")
+                        OutlinedButton(onClick={
+                            val manager=getSystemService(NotificationManager::class.java)
+                            val intent=if(manager.getNotificationChannel(MonitorService.ALERTS)!=null)
+                                Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE,packageName).putExtra(Settings.EXTRA_CHANNEL_ID,MonitorService.ALERTS)
+                            else Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE,packageName)
+                            try { startActivity(intent) } catch(_: android.content.ActivityNotFoundException) { message="Open Android Settings → Apps → AURA → Notifications" }
+                        }) { Text("Android alert settings") }
+                        Text("Changing settings does not replay alerts for an already active episode. Check Live for rule evaluation and Events for the historical notification request status. Posted means a request was submitted, not proof that a sound played.")
                         Text("Alerts are experimental and never describe an uncertain model output as a confirmed real-world event. The active microphone notification stays visible. Disabling its channel stops monitoring. No emergency calls.")
                     }
                 }
@@ -239,10 +267,18 @@ class MainActivity : ComponentActivity() {
         }
         OutlinedTextField(value=value,onValueChange={value=it},label={Text(if(eventType=="rms_above") "RMS threshold" else "Activation score (provisional)")},modifier=Modifier.fillMaxWidth())
         if(eventType!="rms_above") {
+            Text("Optional presets · uncalibrated starting points. Applying one only changes this form; Save is required. Existing saved rules do not change automatically.")
+            RulePresets.all.forEach { preset -> OutlinedButton(enabled=!MonitorService.active.value && !MonitorService.finishing.value,onClick={
+                val c=preset.apply(Condition.Audio(eventType,classId=classId))
+                value=c.minScore.toString();release=c.releaseScore.toString();persistence=c.minDurationMs.toString();gap=c.maxGapMs.toString();alpha=c.emaAlpha.toString()
+                onMessage("${preset.label}: score $value / release $release, persistence $persistence ms, gap $gap ms, EMA $alpha. Cooldown, notify and pinned versions are unchanged. Review then Save.")
+            }) { Text(preset.label) } }
+            Text("Mapped classes: "+(classId?.let { setOf(it) } ?: requireNotNull(SoundCatalog.event(eventType)).classIds).sorted().joinToString { "${SoundCatalog.classLabels[it]} ($it)" })
+            if(eventType=="dog_bark") Text("This rule uses Bark, not the broader Dog class. A high Dog score alone does not satisfy it.")
             Text("Per-class threshold scope (all mapped classes use max score by default)")
             Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                 FilterChip(selected=classId==null,onClick={classId=null},label={Text("All mapped classes")})
-                SoundCatalog.event(eventType)?.classIds?.sorted()?.forEach { id -> FilterChip(selected=classId==id,onClick={classId=id},label={Text(id)}) }
+                SoundCatalog.event(eventType)?.classIds?.sorted()?.forEach { id -> FilterChip(selected=classId==id,onClick={classId=id},label={Text(SoundCatalog.classLabels[id] ?: id)}) }
             }
             OutlinedTextField(value=release,onValueChange={release=it},label={Text("Release score (< activation)")},modifier=Modifier.fillMaxWidth())
             OutlinedTextField(value=persistence,onValueChange={persistence=it},label={Text("Persistence ms (0–60000)")},modifier=Modifier.fillMaxWidth())
@@ -258,7 +294,7 @@ class MainActivity : ComponentActivity() {
                     modelVersion=(editing?.condition as? Condition.Audio)?.modelVersion ?: ModelSpec.VERSION,
                     mappingVersion=(editing?.condition as? Condition.Audio)?.mappingVersion ?: ModelSpec.MAPPING,
                     thresholdVersion=(editing?.condition as? Condition.Audio)?.thresholdVersion ?: ModelSpec.THRESHOLDS,classId=classId)
-                val rule=LocalRule(id=editing?.id ?: UUID.randomUUID().toString(),enabled=editing?.enabled ?: true,source=editing?.source ?: Source(Store.localDeviceId(this@MainActivity)),condition=condition,policy=Policy(cooldown.toLong(),notify),remote=editing?.remote ?: false).validate()
+                val rule=LocalRule(id=editing?.id ?: UUID.randomUUID().toString(),enabled=editing?.enabled ?: true,source=editing?.source ?: Source(Store.localDeviceId(this@MainActivity)),condition=condition,policy=Policy(cooldown.toLong(),notify),text=editing?.text ?: "",remote=editing?.remote ?: false).validate()
                 Store.saveRules(this@MainActivity,rules.filter { it.id!=rule.id }+rule);editing=null;onMessage("Rule saved; microphone activation remains manual")
             } catch(_: Exception) { onMessage("Invalid rule. Check finite scores, release < activation, duration/gap/cooldown ranges and selected capability.") }
         }) { Text(if(editing==null) "Save rule" else "Save changes") }
@@ -272,6 +308,8 @@ class MainActivity : ComponentActivity() {
         }) { Text("Create local RMS rule") }
         rules.forEach { rule -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) {
             Text(rule.label,style=MaterialTheme.typography.titleMedium)
+            Text(RuleFeedback.classes(rule),style=MaterialTheme.typography.labelSmall)
+            Text("Notifications: "+RuleFeedback.notificationSetting(rule,Store.notifications(this@MainActivity),systemAlertsAllowed.value),style=MaterialTheme.typography.bodySmall)
             Text("Schema ${rule.schemaVersion} · ${if(rule.remote) "API download" else "local"}",style=MaterialTheme.typography.labelSmall)
             rule.unavailableReason(MonitorService.modelLoaded.value)?.let { Text(it,color=MaterialTheme.colorScheme.secondary) }
             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {

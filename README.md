@@ -1,4 +1,4 @@
-# AURA v0.3.1 — Sound Intelligence
+# AURA v0.3.2 — Sound Intelligence
 
 **AURA by kaula.systems** is a local-first ambient intelligence platform. This experimental release adds a real, bundled **on-device YAMNet TFLite classifier**, typed rules, temporal sound episodes and Android diagnostics to the verified v0.2 RMS/Compose/FastAPI/SQLite/TypeScript foundation.
 
@@ -15,6 +15,12 @@ Supported curated model classes: **dog barking, alarm or siren, rain, running wa
 7. **Diagnostics** shows model status, 16 kHz sample rate, measured initialization/inference timings, processed/dropped windows and approximate process memory. Change inference cadence (250–2000 ms; default 500 ms) only between sessions. Faster inference costs more processing; slower inference can miss brief events. No physical-device battery measurements are claimed.
 
 The model is already in the APK; airplane-mode local operation needs no account/server/download. Capture uses 16 kHz mono PCM16, normalized /32768, a bounded 15,600-sample rolling window, and one inference consumer with at most one queued window. No raw microphone audio is saved, logged or uploaded. No RMS noise gate discards quiet inputs. Inference exceptions clear sound evidence and preserve explicit RMS-only monitoring.
+
+## Rule feedback and presets (v0.3.2)
+
+**Live** now explains why a classification has not alerted: missing/disabled rule, unavailable profile, score below threshold, insufficient persistence, a tolerated gap or cooldown. Cards name exact classes and show notification readiness separately from the last notification request status. A high **Dog** score does not substitute for **Bark**. **Alerts → Android alert settings** opens Android's channel controls; `posted` is not proof of audible delivery.
+
+**Rules** offers explicit, provisional short-sound (500 ms) and sustained-sound (3000 ms) presets. They only populate editor fields; review and Save are required. Existing saved rules, class mappings, pinned profiles, cooldown and notify settings are not changed automatically. No LLM rule builder or calibration is added. See [RULE_FEEDBACK.md](docs/RULE_FEEDBACK.md).
 
 ## Local metadata backup (v0.3.1)
 

@@ -19,6 +19,8 @@ Phone model, Android version, APK hash, exact rule parameters, acoustic conditio
 | Five Start/Stop cycles | “all good” | Full 20-cycle/relaunch/process-termination protocol |
 | 30-minute session | “all good” | Actual battery/thermal/diagnostics readings |
 
+Additional user feedback: running-water recognition initially appeared in Live without alerts; the user subsequently reported that alerts worked after matching-rule guidance. Bark recognition versus alerting was also discussed. These reports do not establish calibrated thresholds, natural-event accuracy or performance measurements. New v0.3.2 feedback/preset/Android-settings checks are listed in `docs/RULE_FEEDBACK.md` and remain pending physical validation.
+
 ## Run record (complete for each phone/session)
 
 - Tester / date / APK SHA-256 / Git commit:
