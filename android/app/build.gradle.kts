@@ -11,10 +11,11 @@ android {
         applicationId = "systems.kaula.aura"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 6
+        versionName = "0.4.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
+    sourceSets.getByName("test").resources.srcDir("../../contracts")
     androidResources { noCompress += "tflite" }
     // CI prepares this file outside the checkout. Never put signing material in Gradle properties.
     val signingPath = providers.environmentVariable("AURA_SIGNING_STORE_FILE").orNull

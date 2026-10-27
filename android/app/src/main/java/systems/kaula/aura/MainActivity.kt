@@ -6,10 +6,13 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.foundation.background
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -18,9 +21,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.*
 import java.text.DateFormat
@@ -28,10 +35,46 @@ import java.util.Date
 import java.util.UUID
 
 class MainActivity : ComponentActivity() {
+    companion object {
+        internal var rulePlannerFactory: (String,String,String)->RulePlanner = { base,token,device -> BackendRulePlanner(base,token,device) }
+    }
+    private val systemAlertsAllowed=mutableStateOf(true)
+    private val fileBusy=mutableStateOf(false)
+    private val backupMessage=mutableStateOf("")
+    private val pendingRestore=mutableStateOf<LocalBackup?>(null)
+    private val exportBackup=registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        fileBusy.value=uri!=null
+        if(uri==null) fileBusy.value=false else lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val bytes=BackupCodec.encode(Store.backup(this@MainActivity))
+                    requireNotNull(contentResolver.openOutputStream(uri,"wt")) { "Cannot open selected file" }.use { it.write(bytes) }
+                }
+                backupMessage.value="Metadata backup saved. Keep it private; no audio or credentials included."
+            } catch(e: CancellationException) { throw e }
+            catch(_: Exception) { backupMessage.value="Backup not completed. Check storage and remove any incomplete file." }
+            finally { fileBusy.value=false }
+        }
+    }
+    private val importBackup=registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        fileBusy.value=uri!=null
+        if(uri==null) fileBusy.value=false else lifecycleScope.launch {
+            try {
+                val candidate=withContext(Dispatchers.IO) {
+                    requireNotNull(contentResolver.openInputStream(uri)) { "Cannot open selected file" }.use { BackupCodec.read(it) }
+                }
+                check(!MonitorService.active.value && !MonitorService.finishing.value) { "Stop monitoring before restore" }
+                pendingRestore.value=candidate
+            } catch(e: CancellationException) { throw e }
+            catch(_: Exception) { backupMessage.value="Backup could not be read or validated. Existing data kept. Use an AURA metadata backup up to 1 MiB." }
+            finally { fileBusy.value=false }
+        }
+    }
     private val permissions=registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
         MonitorService.error.value=if(results.values.all { it }) "Permissions granted. Tap Start monitoring to activate the microphone." else "Microphone and notification permission required. Restore denied permissions in Android settings."
     }
     private fun startMonitoring() {
+        if(fileBusy.value || pendingRestore.value!=null) return
         val required=mutableListOf(Manifest.permission.RECORD_AUDIO)
         if(Build.VERSION.SDK_INT>=33) required+=Manifest.permission.POST_NOTIFICATIONS
         if(required.any { checkSelfPermission(it)!=PackageManager.PERMISSION_GRANTED }) { permissions.launch(required.toTypedArray()); return }
@@ -43,6 +86,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         if(!MonitorService.active.value) Store.recoverInterruptedEvents(this)
         setContent { MaterialTheme(colorScheme=darkColorScheme(primary=Color(0xFF54DCEB),secondary=Color(0xFF9296FF),background=Color(0xFF080E20),surface=Color(0xFF121E35))) { App() } }
+    }
+    override fun onResume() {
+        super.onResume()
+        val manager=getSystemService(NotificationManager::class.java)
+        systemAlertsAllowed.value=manager.areNotificationsEnabled() && manager.getNotificationChannel(MonitorService.ALERTS)?.importance!=NotificationManager.IMPORTANCE_NONE
     }
     @Composable private fun App() {
         var tab by remember { mutableStateOf("Dashboard") }
@@ -60,24 +108,25 @@ class MainActivity : ComponentActivity() {
         Scaffold(topBar={
             Column(Modifier.background(MaterialTheme.colorScheme.background).statusBarsPadding().padding(horizontal=20.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                 Text("AURA ◌",style=MaterialTheme.typography.headlineLarge,color=MaterialTheme.colorScheme.primary)
-                Text("SOUND INTELLIGENCE · by kaula.systems · v0.3",style=MaterialTheme.typography.labelSmall)
+                Text("SOUND INTELLIGENCE · by kaula.systems · v0.4.0",style=MaterialTheme.typography.labelSmall)
                 Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                    listOf("Dashboard","Live","Rules","Events","Diagnostics","Devices","Alerts").forEach { page -> FilterChip(selected=tab==page,onClick={tab=page},label={Text(page)}) }
+                    listOf("Dashboard","Live","Rules","Events","Diagnostics","Backup","Devices","Alerts").forEach { page -> FilterChip(selected=tab==page,onClick={tab=page},label={Text(page)}) }
                 }
             }
         }) { padding ->
-            Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(padding).verticalScroll(rememberScrollState()).padding(20.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
+            Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(padding).consumeWindowInsets(padding).imePadding().verticalScroll(rememberScrollState()).padding(20.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
                 Text(tab,style=MaterialTheme.typography.headlineSmall)
                 Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                     Text("${MonitorService.status.value} · ${if(MonitorService.active.value) "Microphone in use" else "Microphone off"}",color=MaterialTheme.colorScheme.primary)
                     Text("Uncalibrated RMS %.3f".format(MonitorService.level.doubleValue))
                     Text(if(MonitorService.modelLoaded.value) "On-device YAMNet inference · no audio upload" else "Classifier inactive/unavailable · RMS remains independent",style=MaterialTheme.typography.labelMedium)
                     if(MonitorService.active.value) Button(onClick={stopService(Intent(this@MainActivity,MonitorService::class.java))}) { Text("Stop monitoring") }
-                    else Button(enabled=!syncing && !MonitorService.finishing.value,onClick={startMonitoring()}) { Text("Start monitoring") }
+                    else Button(enabled=!syncing && !fileBusy.value && !MonitorService.finishing.value,onClick={startMonitoring()}) { Text("Start monitoring") }
                 } }
                 if(MonitorService.error.value.isNotBlank()) Text(MonitorService.error.value,color=MaterialTheme.colorScheme.secondary)
                 if(Store.error.value.isNotBlank()) Text(Store.error.value,color=MaterialTheme.colorScheme.error)
                 if(message.isNotBlank()) Text(message,color=MaterialTheme.colorScheme.secondary)
+                if(backupMessage.value.isNotBlank()) Text(backupMessage.value,color=MaterialTheme.colorScheme.secondary)
                 when(tab) {
                     "Dashboard" -> {
                         Text("Stay aware. Stay in control.",style=MaterialTheme.typography.headlineMedium)
@@ -95,25 +144,42 @@ class MainActivity : ComponentActivity() {
                         Text("Live sound intelligence",style=MaterialTheme.typography.titleLarge)
                         Text("${ModelSpec.VERSION} · ${ModelSpec.MAPPING} · ${ModelSpec.THRESHOLDS}",style=MaterialTheme.typography.labelSmall)
                         Text("Top model outputs (uncalibrated scores)")
+                        Text("Live classifications alone do not alert. A matching enabled rule must satisfy its smoothed threshold, persistence and cooldown; notification settings then apply.")
                         if(MonitorService.top.value.isEmpty()) Text("Unknown / unconfirmed. Start monitoring to run local inference.")
                         MonitorService.top.value.forEach { score ->
                             Text("${score.label}: %.3f".format(score.score)); LinearProgressIndicator(progress={score.score},modifier=Modifier.fillMaxWidth())
                             Text(score.classId,style=MaterialTheme.typography.labelSmall)
+                            Text(RuleFeedback.coverage(score.classId,rules).message,style=MaterialTheme.typography.bodySmall)
                         }
-                        rules.forEach { rule -> MonitorService.live.value[rule.id]?.let { live ->
-                            Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) {
-                                Text(rule.label); Text("${live.phase} · persistence ${live.persistenceMs} ms")
-                                Text("Raw %.3f · EMA %.3f".format(live.raw,live.smoothed))
+                        if(rules.isEmpty()) Text("No rules yet. Stop monitoring, then create a sound rule in Rules.")
+                        Text("Rule evaluation · last processed window",style=MaterialTheme.typography.titleMedium)
+                        rules.forEach { rule ->
+                            val live=MonitorService.live.value[rule.id]
+                            val explanation=RuleFeedback.explain(rule,live,MonitorService.active.value,MonitorService.modelLoaded.value,starting=MonitorService.status.value=="Starting")
+                            Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
+                                Text(rule.label);Text(RuleFeedback.classes(rule),style=MaterialTheme.typography.labelSmall)
+                                Text(explanation.message)
+                                live?.let { Text("${it.phase} · Raw %.3f · EMA %.3f".format(it.raw,it.smoothed)) }
+                                explanation.progress?.let { progress -> LinearProgressIndicator(progress={progress},modifier=Modifier.fillMaxWidth()) }
+                                Text("Next new episode: "+RuleFeedback.notificationSetting(rule,alerts,systemAlertsAllowed.value),style=MaterialTheme.typography.bodySmall)
+                                events.firstOrNull { it.ruleId==rule.id }?.let { event ->
+                                    Text("Last episode notification: ${event.notificationStatus}. ${RuleFeedback.notificationHistory(event.notificationStatus)}",style=MaterialTheme.typography.labelSmall)
+                                }
                             } }
-                        } }
+                        }
                     }
-                    "Rules" -> RuleEditor(rules,onMessage={message=it})
+                    "Rules" -> {
+                        NaturalRuleBuilder(base,token,onConfig={b,t->base=b;token=t},onMessage={message=it})
+                        HorizontalDivider()
+                        RuleEditor(rules,onMessage={message=it})
+                    }
                     "Events" -> {
                         Text("Event history · latest 200")
                         if(events.isEmpty()) Text("No local episodes. Create a rule, then explicitly start monitoring.")
                         events.forEach { event -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
                             Text(event.label,style=MaterialTheme.typography.titleMedium)
                             Text("${event.provenance} · ${event.state}",color=MaterialTheme.colorScheme.primary)
+                            if(event.restoredFromBackup) Text("Restored metadata · unverified · no alert replayed",style=MaterialTheme.typography.labelSmall)
                             Text("Start ${date(event.startMs)} · ${if(event.endMs==null) "active / duration updates at end" else "${event.durationMs} ms"}")
                             Text("${event.classId ?: "rms_above"} · RMS %.3f".format(event.rms),style=MaterialTheme.typography.labelSmall)
                             if(event.peakScore!=null) Text("Peak %.3f · mean %.3f (uncalibrated)".format(event.peakScore,event.meanScore))
@@ -132,13 +198,24 @@ class MainActivity : ComponentActivity() {
                         }) { Text("Save cadence") }
                         Text("500 ms default uses overlapping 975 ms windows. Faster cadence uses more processing; slower cadence may miss short sounds. No RMS noise gate is used, so quiet events are not discarded by an amplitude threshold. Battery and thermal measurements require a physical phone.")
                     }
+                    "Backup" -> {
+                        Text("Local metadata backup",style=MaterialTheme.typography.titleLarge)
+                        Text("Save rules and the latest 200 events before changing or reinstalling the app. This feature cannot recover data already removed by an uninstall.")
+                        Text("The JSON file contains labels, device IDs, timestamps and uncalibrated scores. It contains no microphone audio, API token, server URL or sync credentials. It is not encrypted; choose a trusted location. A cloud file provider may upload it if you choose one.")
+                        Text("Restore merges without replacing existing IDs. Conflicts or capacity overflow reject the entire restore. Newly restored rules are disabled and assigned to this phone; review and enable them yourself. Model and threshold versions stay pinned. History keeps its original device and provenance, labeled as restored and unverified. No microphone activation or alert replay.")
+                        val available=!syncing && !fileBusy.value && !MonitorService.active.value && !MonitorService.finishing.value
+                        Button(enabled=available,onClick={fileBusy.value=true;backupMessage.value="";exportBackup.launch("aura-metadata-${System.currentTimeMillis()}.json")}) { Text("Export metadata backup") }
+                        OutlinedButton(enabled=available,onClick={fileBusy.value=true;backupMessage.value="";importBackup.launch(arrayOf("application/json","text/plain","application/octet-stream"))}) { Text("Restore from backup") }
+                        if(fileBusy.value) Text("Working with the selected file…")
+                        Text("Stop monitoring before backup or restore. Only AURA metadata format 1 is accepted (up to 1 MiB, 128 rules and 200 events). Android's file picker grants access only to your chosen file; no broad storage permission is requested.")
+                    }
                     "Devices" -> {
                         Text("Local phone ${Store.localDeviceId(this@MainActivity)}")
                         Text("Optional explicit HTTPS sync sends event metadata and scores, never audio. Stop monitoring before syncing. Tokens stay in memory.")
                         OutlinedTextField(value=base,onValueChange={base=it},label={Text("HTTPS backend URL")},modifier=Modifier.fillMaxWidth())
-                        OutlinedTextField(value=token,onValueChange={token=it},label={Text("API token (not saved)")},visualTransformation=PasswordVisualTransformation(),modifier=Modifier.fillMaxWidth())
+                        OutlinedTextField(value=token,onValueChange={token=it},label={Text("API token (not saved)")},visualTransformation=PasswordVisualTransformation(),keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Password),singleLine=true,modifier=Modifier.fillMaxWidth())
                         OutlinedTextField(value=deviceId,onValueChange={deviceId=it},label={Text("Device ID; blank registers phone")},modifier=Modifier.fillMaxWidth())
-                        Button(enabled=!syncing && !MonitorService.active.value && !MonitorService.finishing.value,onClick={
+                        Button(enabled=!syncing && !fileBusy.value && !MonitorService.active.value && !MonitorService.finishing.value,onClick={
                             syncing=true
                             val b=base; val t=token; val d=deviceId
                             scope.launch {
@@ -151,11 +228,106 @@ class MainActivity : ComponentActivity() {
                     }
                     "Alerts" -> {
                         Row { Text("Threshold and possible-sound alerts",Modifier.weight(1f)); Switch(modifier=Modifier.semantics { contentDescription="Threshold and possible-sound alerts" },checked=alerts,onCheckedChange={alerts=it;Store.notifications(this@MainActivity,it)}) }
+                        Text(if(systemAlertsAllowed.value) "Android alert requests available; audible sound and banners depend on channel settings, volume and Do Not Disturb." else "Android notifications or the experimental sound-event alert channel are blocked.")
+                        OutlinedButton(onClick={
+                            val manager=getSystemService(NotificationManager::class.java)
+                            val intent=if(manager.getNotificationChannel(MonitorService.ALERTS)!=null)
+                                Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE,packageName).putExtra(Settings.EXTRA_CHANNEL_ID,MonitorService.ALERTS)
+                            else Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE,packageName)
+                            try { startActivity(intent) } catch(_: android.content.ActivityNotFoundException) { message="Open Android Settings → Apps → AURA → Notifications" }
+                        }) { Text("Android alert settings") }
+                        Text("Changing settings does not replay alerts for an already active episode. Check Live for rule evaluation and Events for the historical notification request status. Posted means a request was submitted, not proof that a sound played.")
                         Text("Alerts are experimental and never describe an uncertain model output as a confirmed real-world event. The active microphone notification stays visible. Disabling its channel stops monitoring. No emergency calls.")
                     }
                 }
                 Spacer(Modifier.height(20.dp))
             }
+        }
+        pendingRestore.value?.let { backup ->
+            AlertDialog(onDismissRequest={pendingRestore.value=null},title={Text("Restore metadata?")},
+                text={Text("File contains ${backup.rules.size} rules and ${backup.events.size} events. Existing data is kept. New rules will be disabled. Restored history is unverified. No microphone or notifications will start.")},
+                dismissButton={TextButton(onClick={pendingRestore.value=null}) { Text("Cancel") }},
+                confirmButton={TextButton(onClick={
+                    pendingRestore.value=null;fileBusy.value=true
+                    lifecycleScope.launch {
+                        try {
+                            val plan=withContext(Dispatchers.IO) { Store.restore(this@MainActivity,backup) }
+                            backupMessage.value="Restored ${plan.addedRules} disabled rules and ${plan.addedEvents} historical events. Review rules before enabling."
+                        } catch(e: CancellationException) { throw e }
+                        catch(e: IllegalArgumentException) { backupMessage.value=e.message ?: "Restore rejected; existing data kept" }
+                        catch(_: Exception) { backupMessage.value="Restore could not finish. Check storage and local history before retrying." }
+                        finally { fileBusy.value=false }
+                    }
+                }) { Text("Restore disabled rules & history") }})
+        }
+    }
+    @Composable private fun NaturalRuleBuilder(base: String, token: String, onConfig: (String,String)->Unit, onMessage: (String)->Unit) {
+        var request by remember { mutableStateOf("") }
+        var result by remember { mutableStateOf<RulePlan?>(null) }
+        var planning by remember { mutableStateOf(false) }
+        var consent by remember { mutableStateOf(false) }
+        val focus=LocalFocusManager.current
+        val keyboard=LocalSoftwareKeyboardController.current
+        val scope=rememberCoroutineScope()
+        val stopped=!MonitorService.active.value && !MonitorService.finishing.value
+        Text("Describe a monitoring rule",style=MaterialTheme.typography.titleLarge)
+        Text("OpenAI rule preview via your local/private backend. Only rule text and the supported catalog are sent to OpenAI; microphone audio stays on-device. The OpenAI key belongs in the backend environment, never this app. Provider retention policies apply even with storage disabled.")
+        OutlinedTextField(value=base,onValueChange={onConfig(it,token);result=null;consent=false},enabled=stopped && !planning,label={Text("Private HTTPS backend URL")},keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Uri),singleLine=true,modifier=Modifier.fillMaxWidth())
+        OutlinedTextField(value=token,onValueChange={onConfig(base,it);result=null;consent=false},enabled=stopped && !planning,label={Text("AURA API token (not the OpenAI key)")},visualTransformation=PasswordVisualTransformation(),keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Password),singleLine=true,modifier=Modifier.fillMaxWidth())
+        OutlinedTextField(value=request,onValueChange={request=it;result=null},enabled=stopped && !planning,
+            label={Text("What should AURA monitor?")},supportingText={Text("${request.length}/240 characters · preview before saving")},modifier=Modifier.fillMaxWidth())
+        Row(Modifier.testTag("natural-rule-examples").horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+            listOf("Barking example" to "Notify me when my dog barks for 2 seconds, with a cooldown of 30 seconds",
+                "Faucet example" to "Notify me when the tap is running for 3 seconds",
+                "Doorbell example" to "Notify me when the doorbell rings").forEach { (label,example) ->
+                OutlinedButton(enabled=stopped && !planning,onClick={focus.clearFocus();keyboard?.hide();request=example;result=null}) { Text(label) }
+            }
+        }
+        Row { Text("Allow sending this rule text to OpenAI through my backend",Modifier.weight(1f)); Checkbox(modifier=Modifier.semantics { contentDescription="Consent to OpenAI rule text sharing" },checked=consent,onCheckedChange={consent=it;result=null},enabled=stopped && !planning) }
+        Button(enabled=stopped && !planning && consent && base.isNotBlank() && token.length>=24 && request.isNotBlank() && request.length<=240,onClick={
+            focus.clearFocus();keyboard?.hide()
+            val submitted=request;planning=true;result=null
+            scope.launch {
+                try {
+                    val planner=rulePlannerFactory(base,token,Store.localDeviceId(this@MainActivity))
+                    val proposal=planner.propose(submitted)
+                    if(request==submitted) result=proposal
+                } catch(e: CancellationException) { throw e }
+                catch(_: Exception) { onMessage("Rule preview failed. Check private HTTPS URL, AURA token and backend OpenAI setup. No rule saved.") }
+                finally { planning=false }
+            }
+        }) { Text(if(planning) "Preparing preview…" else "Send text to OpenAI & preview") }
+        when(val proposal=result) {
+            is RulePlan.Clarify -> Text("Clarification needed: ${proposal.message}",color=MaterialTheme.colorScheme.secondary)
+            is RulePlan.Ready -> {
+                val draft=proposal.draft
+                val preview=draft.asDisabledRule("preview","preview-device")
+                Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                    Text("Review proposed rule",style=MaterialTheme.typography.titleMedium)
+                    Text("OpenAI planner: ${draft.plannerModel} · interpretation unverified",style=MaterialTheme.typography.labelSmall)
+                    Text(preview.label);Text(RuleFeedback.classes(preview))
+                    when(val c=draft.condition) {
+                        is Condition.Audio -> {
+                            Text("Activation ${c.minScore} · release ${c.releaseScore} · EMA ${c.emaAlpha}")
+                            Text("Persistence ${c.minDurationMs} ms · max gap ${c.maxGapMs} ms")
+                            Text("${c.modelVersion} · ${c.mappingVersion} · ${c.thresholdVersion}",style=MaterialTheme.typography.labelSmall)
+                        }
+                        is Condition.Rms -> Text("RMS strictly above ${c.threshold}; legacy repeat ${c.legacyRepeat}")
+                    }
+                    Text("Cooldown ${draft.policy.cooldownMs} ms · notify ${draft.policy.notify} · saved disabled")
+                    draft.assumptions.forEach { Text(it,style=MaterialTheme.typography.bodySmall) }
+                    Button(enabled=stopped && !planning && request==draft.request,onClick={
+                        try {
+                            check(request==draft.request && !MonitorService.active.value && !MonitorService.finishing.value) { "Preview again while monitoring is stopped" }
+                            val rule=draft.asDisabledRule(UUID.randomUUID().toString(),Store.localDeviceId(this@MainActivity))
+                            Store.saveRules(this@MainActivity,Store.rules(this@MainActivity)+rule)
+                            result=null;request="";onMessage("Disabled rule saved. Review and enable it in Rules, then Start monitoring explicitly.")
+                        } catch(_: Exception) { onMessage("Rule could not be saved. Check local capacity and preview again while stopped.") }
+                    }) { Text("Save disabled rule") }
+                    TextButton(onClick={result=null}) { Text("Discard preview") }
+                } }
+            }
+            null -> Unit
         }
     }
     @Composable private fun RuleEditor(rules: List<LocalRule>,onMessage: (String)->Unit) {
@@ -176,10 +348,18 @@ class MainActivity : ComponentActivity() {
         }
         OutlinedTextField(value=value,onValueChange={value=it},label={Text(if(eventType=="rms_above") "RMS threshold" else "Activation score (provisional)")},modifier=Modifier.fillMaxWidth())
         if(eventType!="rms_above") {
+            Text("Optional presets · uncalibrated starting points. Applying one only changes this form; Save is required. Existing saved rules do not change automatically.")
+            RulePresets.all.forEach { preset -> OutlinedButton(enabled=!MonitorService.active.value && !MonitorService.finishing.value,onClick={
+                val c=preset.apply(Condition.Audio(eventType,classId=classId))
+                value=c.minScore.toString();release=c.releaseScore.toString();persistence=c.minDurationMs.toString();gap=c.maxGapMs.toString();alpha=c.emaAlpha.toString()
+                onMessage("${preset.label}: score $value / release $release, persistence $persistence ms, gap $gap ms, EMA $alpha. Cooldown, notify and pinned versions are unchanged. Review then Save.")
+            }) { Text(preset.label) } }
+            Text("Mapped classes: "+(classId?.let { setOf(it) } ?: requireNotNull(SoundCatalog.event(eventType)).classIds).sorted().joinToString { "${SoundCatalog.classLabels[it]} ($it)" })
+            if(eventType=="dog_bark") Text("This rule uses Bark, not the broader Dog class. A high Dog score alone does not satisfy it.")
             Text("Per-class threshold scope (all mapped classes use max score by default)")
             Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                 FilterChip(selected=classId==null,onClick={classId=null},label={Text("All mapped classes")})
-                SoundCatalog.event(eventType)?.classIds?.sorted()?.forEach { id -> FilterChip(selected=classId==id,onClick={classId=id},label={Text(id)}) }
+                SoundCatalog.event(eventType)?.classIds?.sorted()?.forEach { id -> FilterChip(selected=classId==id,onClick={classId=id},label={Text(SoundCatalog.classLabels[id] ?: id)}) }
             }
             OutlinedTextField(value=release,onValueChange={release=it},label={Text("Release score (< activation)")},modifier=Modifier.fillMaxWidth())
             OutlinedTextField(value=persistence,onValueChange={persistence=it},label={Text("Persistence ms (0–60000)")},modifier=Modifier.fillMaxWidth())
@@ -195,7 +375,7 @@ class MainActivity : ComponentActivity() {
                     modelVersion=(editing?.condition as? Condition.Audio)?.modelVersion ?: ModelSpec.VERSION,
                     mappingVersion=(editing?.condition as? Condition.Audio)?.mappingVersion ?: ModelSpec.MAPPING,
                     thresholdVersion=(editing?.condition as? Condition.Audio)?.thresholdVersion ?: ModelSpec.THRESHOLDS,classId=classId)
-                val rule=LocalRule(id=editing?.id ?: UUID.randomUUID().toString(),enabled=editing?.enabled ?: true,source=editing?.source ?: Source(Store.localDeviceId(this@MainActivity)),condition=condition,policy=Policy(cooldown.toLong(),notify),remote=editing?.remote ?: false).validate()
+                val rule=LocalRule(id=editing?.id ?: UUID.randomUUID().toString(),enabled=editing?.enabled ?: true,source=editing?.source ?: Source(Store.localDeviceId(this@MainActivity)),condition=condition,policy=Policy(cooldown.toLong(),notify),text=editing?.text ?: "",remote=editing?.remote ?: false).validate()
                 Store.saveRules(this@MainActivity,rules.filter { it.id!=rule.id }+rule);editing=null;onMessage("Rule saved; microphone activation remains manual")
             } catch(_: Exception) { onMessage("Invalid rule. Check finite scores, release < activation, duration/gap/cooldown ranges and selected capability.") }
         }) { Text(if(editing==null) "Save rule" else "Save changes") }
@@ -209,6 +389,8 @@ class MainActivity : ComponentActivity() {
         }) { Text("Create local RMS rule") }
         rules.forEach { rule -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) {
             Text(rule.label,style=MaterialTheme.typography.titleMedium)
+            Text(RuleFeedback.classes(rule),style=MaterialTheme.typography.labelSmall)
+            Text("Notifications: "+RuleFeedback.notificationSetting(rule,Store.notifications(this@MainActivity),systemAlertsAllowed.value),style=MaterialTheme.typography.bodySmall)
             Text("Schema ${rule.schemaVersion} · ${if(rule.remote) "API download" else "local"}",style=MaterialTheme.typography.labelSmall)
             rule.unavailableReason(MonitorService.modelLoaded.value)?.let { Text(it,color=MaterialTheme.colorScheme.secondary) }
             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {

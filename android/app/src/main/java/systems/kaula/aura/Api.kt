@@ -8,6 +8,36 @@ import java.net.URL
 import javax.net.ssl.HttpsURLConnection
 
 object Api {
+    fun previewRule(base: String, token: String, text: String, deviceId: String, consent: Boolean): RulePlan {
+        require(consent) { "Explicit consent to send rule text to OpenAI is required" }
+        require(text.isNotBlank() && text.length<=240 && token.length>=24) { "Enter rule text and the AURA backend token (at least 24 characters)" }
+        val uri=URI(base.trim().trimEnd('/'))
+        require(uri.scheme=="https" && !uri.host.isNullOrBlank() && uri.userInfo==null && uri.query==null && uri.fragment==null) { "Use a trusted private HTTPS backend URL; localhost on your phone is not your computer" }
+        val connection=URL("$uri/api/v2/rules/preview").openConnection() as HttpsURLConnection
+        try {
+            connection.connectTimeout=8000;connection.readTimeout=28000;connection.instanceFollowRedirects=false
+            connection.requestMethod="POST";connection.doOutput=true
+            connection.setRequestProperty("Authorization","Bearer $token")
+            connection.setRequestProperty("Content-Type","application/json")
+            val body=JSONObject().put("schema_version",2).put("text",text).put("device_id",deviceId).put("consent_to_openai",true)
+            connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+            val code=connection.responseCode
+            check(code==200) { when(code) {
+                401,403 -> "AURA backend token rejected"
+                429 -> "Planner busy; retry later. No rule saved"
+                503 -> "OpenAI planner not configured or unavailable on the backend. No rule saved"
+                502 -> "OpenAI failed or returned an invalid proposal. No rule saved"
+                else -> "Rule preview failed (HTTP $code). No rule saved"
+            } }
+            val output=java.io.ByteArrayOutputStream()
+            connection.inputStream.use { input ->
+                val block=ByteArray(8192)
+                while(true) { val count=input.read(block);if(count==-1) break;require(count>0 && output.size()+count<=RulePlanCodec.MAX_BYTES);output.write(block,0,count) }
+            }
+            val decoded=Charsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT).decode(java.nio.ByteBuffer.wrap(output.toByteArray())).toString()
+            return RulePlanCodec.decode(decoded,text,deviceId)
+        } finally { connection.disconnect() }
+    }
     // Explicit sync only. No automatic background networking, no audio uploads.
     fun sync(context: Context, base: String, token: String, deviceId: String): String {
         val uri = URI(base.trim().trimEnd('/'))

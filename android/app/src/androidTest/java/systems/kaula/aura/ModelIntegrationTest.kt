@@ -30,6 +30,7 @@ class ModelIntegrationTest {
                     val score=result.scores[entry.getInt("index")]
                     assertEquals(entry.getString("class_id"),score.classId)
                     assertEquals(entry.getString("label"),score.label)
+                    assertEquals(score.label,SoundCatalog.classLabels[score.classId])
                 }
             }
             assertEquals("/m/05tny_",result.scores[70].classId)

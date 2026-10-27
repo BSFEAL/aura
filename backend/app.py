@@ -14,8 +14,9 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
 from contracts_v2 import TypedRuleInput, TypedRule, TypedEventInput, TypedEvent, AudioCondition
 from migrations import migrate
+from rule_planner import PreviewInput, Preview, preview, openai_client
 
-app = FastAPI(title="AURA", version="0.3.0")
+app = FastAPI(title="AURA", version="0.4.0")
 auth = HTTPBearer(auto_error=False)
 
 
@@ -119,7 +120,7 @@ protected = [Depends(authorize)]
 @app.get("/api/status", dependencies=protected, response_model=Status)
 def status():
     with db() as c:
-        return dict(version="0.3.0", devices=c.execute("SELECT count(*) FROM devices").fetchone()[0],
+        return dict(version="0.4.0", devices=c.execute("SELECT count(*) FROM devices").fetchone()[0],
                     enabled_rules=c.execute("SELECT count(*) FROM rules WHERE enabled=1").fetchone()[0],
                     events=c.execute("SELECT count(*) FROM events").fetchone()[0],
                     monitoring="Device-controlled; API does not activate microphones")
@@ -228,6 +229,12 @@ def typed_rule(row):
 def typed_rules():
     with db() as c:
         return [typed_rule(r) for r in c.execute("SELECT * FROM rules ORDER BY rowid DESC")]
+
+
+@app.post("/api/v2/rules/preview", dependencies=protected, response_model=Preview)
+async def preview_natural_rule(data: PreviewInput, client=Depends(openai_client)):
+    # Read-only planning accepts a local phone ID without registering/activating a device.
+    return await preview(data,client)
 
 
 @app.post("/api/v2/rules/validate", dependencies=protected, response_model=TypedRuleInput)

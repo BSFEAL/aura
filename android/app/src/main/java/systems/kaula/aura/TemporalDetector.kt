@@ -9,7 +9,8 @@ data class Episode(
     val eventType: String, val classId: String?, val modelVersion: String?,
     val thresholdVersion: String?, val rms: Double
 )
-data class DetectorUpdate(val phase: Phase, val raw: Float, val smoothed: Float, val persistenceMs: Long, val started: Episode?=null, val ended: Episode?=null)
+data class DetectorUpdate(val phase: Phase, val raw: Float, val smoothed: Float, val persistenceMs: Long, val started: Episode?=null, val ended: Episode?=null,
+    val cooldownRemainingMs: Long=0, val gapRemainingMs: Long=0, val belowEvidence: Boolean=false, val rms: Double=raw.toDouble())
 
 /** One instance per rule; bounded scalar state. Wall timestamps anchored at episode start. */
 class TemporalDetector(private val rule: LocalRule, private val newId: ()->String = { UUID.randomUUID().toString() }) {
@@ -34,6 +35,11 @@ class TemporalDetector(private val rule: LocalRule, private val newId: ()->Strin
     private var lastRms=0.0
     private var belowEvidence=false
     private var winningClass: String?=null
+    private fun snapshot(raw: Float, smoothed: Float, now: Long, started: Episode?=null, ended: Episode?=null) = DetectorUpdate(
+        phase,raw,smoothed,if(phase==Phase.CANDIDATE || phase==Phase.ACTIVE) (now-candidate).coerceAtLeast(0) else 0,started,ended,
+        (cooldownUntil-now).coerceAtLeast(0),
+        if(belowEvidence && (phase==Phase.CANDIDATE || phase==Phase.ACTIVE)) (gap-(now-lastEvidence)).coerceAtLeast(0) else 0,
+        belowEvidence && (phase==Phase.CANDIDATE || phase==Phase.ACTIVE),lastRms)
     private fun episode(end: Long?, reason: String): Episode {
         val event=c?.eventType ?: "rms_above"
         return Episode(id,rule.id,anchorWall,end?.let { anchorWall+(it-candidate).coerceAtLeast(0) },
@@ -57,7 +63,7 @@ class TemporalDetector(private val rule: LocalRule, private val newId: ()->Strin
                 val ended=episode(lastEvidence,"ended")
                 phase=if(mono<cooldownUntil) Phase.COOLDOWN else Phase.IDLE
                 smooth=null; belowEvidence=false
-                return DetectorUpdate(phase,raw,raw,0,ended=ended)
+                return snapshot(raw,raw,mono,ended=ended)
             }
         }
         val smoothed=(smooth?.let { alpha*raw+(1-alpha)*it } ?: raw).also { smooth=it }
@@ -77,7 +83,7 @@ class TemporalDetector(private val rule: LocalRule, private val newId: ()->Strin
                 peak=maxOf(peak,raw); sum+=raw; count++
                 if(qualifies && mono-candidate>=persistence && mono>=cooldownUntil) {
                     phase=Phase.ACTIVE; activated=mono; cooldownUntil=mono+rule.policy.cooldownMs; id=newId()
-                    return DetectorUpdate(phase,raw,smoothed,mono-candidate,started=episode(null,"active"),ended=interrupted)
+                    return snapshot(raw,smoothed,mono,started=episode(null,"active"),ended=interrupted)
                 }
             }
         } else if(phase==Phase.ACTIVE) {
@@ -89,9 +95,9 @@ class TemporalDetector(private val rule: LocalRule, private val newId: ()->Strin
             if(mono-lastEvidence>gap || (legacy && mono-activated>=rule.policy.cooldownMs)) {
                 val ended=episode(if(legacy) mono else lastEvidence,"ended")
                 phase=if(mono<cooldownUntil) Phase.COOLDOWN else Phase.IDLE
-                return DetectorUpdate(phase,raw,smoothed,0,ended=ended)
+                return snapshot(raw,smoothed,mono,ended=ended)
             }
         }
-        return DetectorUpdate(phase,raw,smoothed,if(phase==Phase.CANDIDATE || phase==Phase.ACTIVE) mono-candidate else 0,ended=interrupted)
+        return snapshot(raw,smoothed,mono,ended=interrupted)
     }
 }
