@@ -29,7 +29,11 @@ class AdaptiveDesignTest {
         // Gradle may uninstall the test target after execution. Export while it still exists.
         // Only instrumentation's shell identity copies these explicit test screenshots.
         val exported="/sdcard/Download/aura-ui-screenshots/$name.png"
-        assertEquals("exported",shell("mkdir -p /sdcard/Download/aura-ui-screenshots && cp ${image.absolutePath} $exported && test -s $exported && echo exported").trim())
+        // executeShellCommand runs one executable; it does not interpret shell operators.
+        shell("mkdir -p /sdcard/Download/aura-ui-screenshots")
+        shell("cp ${image.absolutePath} $exported")
+        assertTrue(image.length()>0)
+        assertEquals(image.length(),shell("stat -c %s $exported").trim().toLong())
     }
     @Test fun phoneScreensAndTabletNavigationRemainAccessible() {
         val originals=Store.rules(compose.activity)
