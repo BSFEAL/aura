@@ -13,9 +13,18 @@ sealed interface RulePlan {
 data class RuleDraft(val request: String, val condition: Condition, val policy: Policy, val assumptions: List<String>, val plannerModel: String) {
     fun asDisabledRule(id: String, deviceId: String) = LocalRule(id=id,enabled=false,source=Source(deviceId),condition=condition,policy=policy,text=request).validate()
 }
-fun interface RulePlanner { suspend fun propose(request: String): RulePlan }
+fun interface RulePlanner {
+    suspend fun propose(request: String): RulePlan
+    suspend fun converse(request: String,conversation: List<RuleChatTurn>): RulePlan {
+        require(conversation.isEmpty()) { "This planner does not support follow-up messages" }
+        return propose(request)
+    }
+}
 class BackendRulePlanner(private val base: String, private val token: String, private val deviceId: String, private val provider: String = "openai") : RulePlanner {
-    override suspend fun propose(request: String) = withContext(Dispatchers.IO) { Api.previewRule(base,token,request,deviceId,consent=true,provider=provider) }
+    override suspend fun propose(request: String) = converse(request,emptyList())
+    override suspend fun converse(request: String,conversation: List<RuleChatTurn>) = withContext(Dispatchers.IO) {
+        Api.previewRule(base,token,request,deviceId,consent=true,provider=provider,conversation=conversation)
+    }
 }
 @Serializable private data class PlannerClass(@SerialName("class_id") val classId: String,val label: String)
 @Serializable private data class PlannerEnvelope(
@@ -64,4 +73,19 @@ object RulePlanCodec {
         require(envelope.assumptions.size<=12 && envelope.assumptions.all { it.length<=240 })
         return RulePlan.Ready(RuleDraft(request,rule.condition,rule.policy,envelope.assumptions,envelope.plannerModel))
     }
+}
+
+@Serializable data class RuleChatTurn(val role: String,val text: String) {
+    fun validate(): RuleChatTurn {
+        require(role in setOf("user","assistant") && text.isNotBlank() && text.length<=if(role=="user") 240 else 512)
+        return this
+    }
+}
+fun validateConversation(turns: List<RuleChatTurn>) {
+    require(turns.size<=12 && turns.size%2==0)
+    turns.forEachIndexed { i,turn -> turn.validate();require(turn.role==if(i%2==0) "assistant" else "user") }
+}
+fun RuleDraft.chatSummary(): String = when(val c=condition) {
+    is Condition.Audio -> "Proposed ${c.eventType} (${c.classId ?: "mapped classes"}): score ${c.minScore}, release ${c.releaseScore}, EMA ${c.emaAlpha}, persistence ${c.minDurationMs} ms, gap ${c.maxGapMs} ms; cooldown ${policy.cooldownMs} ms, notify ${policy.notify}. Awaiting your approval."
+    is Condition.Rms -> "Proposed RMS above ${c.threshold}; cooldown ${policy.cooldownMs} ms, notify ${policy.notify}. Awaiting your approval."
 }

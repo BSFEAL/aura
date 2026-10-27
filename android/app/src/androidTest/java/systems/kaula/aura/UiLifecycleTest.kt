@@ -53,12 +53,12 @@ class UiLifecycleTest {
     }
     @Test fun selectingAnotherProviderResetsConsent() {
         compose.onAllNodesWithText("Rules").onFirst().performClick()
-        compose.onNodeWithText("Natural-language builder").performScrollTo().performClick()
+        compose.onNodeWithText("+ Create rule").performScrollTo().performClick()
         compose.onNodeWithContentDescription("Consent to OpenAI rule text sharing").performScrollTo().performClick()
         compose.onNodeWithContentDescription("Consent to OpenAI rule text sharing").assertIsOn()
         compose.onNodeWithText("Anthropic",useUnmergedTree=true).performScrollTo().performClick()
         compose.onNodeWithContentDescription("Consent to Anthropic rule text sharing").performScrollTo().assertIsOff()
-        compose.onNodeWithText("Send text to Anthropic & preview").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithText("Send to Anthropic").performScrollTo().assertIsNotEnabled()
         assertFalse(MonitorService.active.value)
     }
     @Test fun naturalPreviewRequiresConsentAndExplicitDisabledSave() {
@@ -66,28 +66,29 @@ class UiLifecycleTest {
         val originalFactory=MainActivity.rulePlannerFactory
         val calls=java.util.concurrent.atomic.AtomicInteger()
         try {
-            MainActivity.rulePlannerFactory={_,_,_,_-> RulePlanner { request ->
-                calls.incrementAndGet()
-                RulePlan.Ready(RuleDraft(request,Condition.Audio("dog_bark",minDurationMs=2000),Policy(),listOf("Synthetic UI proposal only"),"mock-planner-test"))
+            MainActivity.rulePlannerFactory={_,_,_,_-> object: RulePlanner {
+                override suspend fun propose(request: String)=converse(request,emptyList())
+                override suspend fun converse(request: String,conversation: List<RuleChatTurn>): RulePlan {
+                    validateConversation(conversation);calls.incrementAndGet()
+                    return RulePlan.Ready(RuleDraft(request,Condition.Audio("dog_bark",minDurationMs=2000),Policy(),listOf("Synthetic UI proposal only"),"mock-planner-test"))
+                }
             } }
             compose.onAllNodesWithText("Rules").onFirst().performClick()
-        compose.onNodeWithText("Natural-language builder").performScrollTo().performClick()
+        compose.onNodeWithText("+ Create rule").performScrollTo().performClick()
             compose.onNodeWithText("Private HTTPS backend URL").performScrollTo().performTextReplacement("https://private.invalid")
             compose.onNodeWithText("AURA API token (not a provider key)").performScrollTo().performTextReplacement("test-aura-token-at-least-24")
-            compose.onNodeWithTag("natural-rule-examples").performScrollTo().assertIsDisplayed()
-            compose.onNodeWithText("Barking example").performClick()
-            compose.onNodeWithText("What should AURA monitor?").assertTextContains("Notify me when my dog barks for 2 seconds, with a cooldown of 30 seconds")
-            compose.onNodeWithText("Send text to OpenAI & preview").performScrollTo().assertIsNotEnabled()
+            compose.onNodeWithText("What should AURA monitor?").performScrollTo().performTextReplacement("Notify me when my dog barks for 2 seconds")
+            compose.onNodeWithText("Send to OpenAI").performScrollTo().assertIsNotEnabled()
             assertEquals(0,calls.get())
             compose.onNodeWithContentDescription("Consent to OpenAI rule text sharing").performScrollTo().performClick()
             compose.onNodeWithContentDescription("Consent to OpenAI rule text sharing").assertIsOn()
-            compose.onNodeWithText("Send text to OpenAI & preview").performScrollTo().assertIsEnabled().performClick()
+            compose.onNodeWithText("Send to OpenAI").performScrollTo().assertIsEnabled().performClick()
             compose.waitUntil(10000) { calls.get()==1 }
             compose.onNodeWithText("Review proposed rule").performScrollTo().assertIsDisplayed()
             assertEquals(originals,Store.rules(compose.activity));assertFalse(MonitorService.active.value)
             compose.onNodeWithText("What should AURA monitor?").performScrollTo().performTextReplacement("Notify me when my dog barks for 2 seconds")
             compose.onNodeWithText("Save disabled rule").assertDoesNotExist()
-            compose.onNodeWithText("Send text to OpenAI & preview").performScrollTo().performClick()
+            compose.onNodeWithText("Send to OpenAI").performScrollTo().performClick()
             compose.waitUntil(10000) { calls.get()==2 }
             compose.onNodeWithText("Save disabled rule").performScrollTo().performClick()
             compose.runOnIdle {
@@ -101,17 +102,61 @@ class UiLifecycleTest {
             compose.runOnIdle { Store.saveRules(compose.activity,originals) }
         }
     }
+    @Test fun chatClarificationAndRefinementNeedExplicitSave() {
+        val originalFactory=MainActivity.rulePlannerFactory
+        val originals=Store.rules(compose.activity)
+        val calls=java.util.concurrent.atomic.AtomicInteger()
+        try {
+            MainActivity.rulePlannerFactory={_,_,_,_-> object: RulePlanner {
+                override suspend fun propose(request: String): RulePlan = RulePlan.Clarify("Which sound should AURA monitor?")
+                override suspend fun converse(request: String,conversation: List<RuleChatTurn>): RulePlan {
+                    validateConversation(conversation);calls.incrementAndGet()
+                    if(conversation.isEmpty()) return propose(request)
+                    assertEquals("Notify me about my pet",request)
+                    assertEquals("Dog barking for 2 seconds, 45 seconds cooldown",conversation.last().text)
+                    return RulePlan.Ready(RuleDraft(request,Condition.Audio("dog_bark",minDurationMs=2000),Policy(45000),listOf("Synthetic UI proposal"),"test-planner"))
+                }
+            } }
+            compose.onAllNodesWithText("Rules").onFirst().performClick()
+            compose.onNodeWithText("+ Create rule").performScrollTo().performClick()
+            compose.onNodeWithText("RMS threshold").assertDoesNotExist()
+            compose.onNodeWithText("Barking example").assertDoesNotExist()
+            compose.onNodeWithText("Private HTTPS backend URL").performScrollTo().performTextReplacement("https://private.invalid")
+            compose.onNodeWithText("AURA API token (not a provider key)").performScrollTo().performTextReplacement("test-aura-token-at-least-24")
+            compose.onNodeWithText("What should AURA monitor?").performScrollTo().performTextReplacement("Notify me about my pet")
+            compose.onNodeWithContentDescription("Consent to OpenAI rule text sharing").performScrollTo().performClick()
+            compose.onNodeWithText("Send to OpenAI").performScrollTo().performClick()
+            compose.waitUntil(10000) { calls.get()==1 }
+            compose.onNodeWithText("Save disabled rule").assertDoesNotExist()
+            compose.onNodeWithText("What should AURA monitor?").performScrollTo().performTextReplacement("Dog barking for 2 seconds, 45 seconds cooldown")
+            compose.onNodeWithText("Send to OpenAI").performScrollTo().performClick()
+            compose.waitUntil(10000) { calls.get()==2 }
+            compose.onNodeWithText("Review proposed rule").performScrollTo().assertIsDisplayed()
+            assertEquals(originals,Store.rules(compose.activity))
+            compose.onNodeWithText("Save disabled rule").performScrollTo().performClick()
+            compose.runOnIdle {
+                val added=Store.rules(compose.activity).single { it.id !in originals.map { r->r.id } }
+                assertFalse(added.enabled);assertEquals(45000L,added.policy.cooldownMs)
+                assertEquals(2000L,(added.condition as Condition.Audio).minDurationMs)
+                assertFalse(MonitorService.active.value)
+            }
+        } finally {
+            MainActivity.rulePlannerFactory=originalFactory
+            compose.runOnIdle { Store.saveRules(compose.activity,originals) }
+        }
+    }
     @Test fun ruleEditingAndEventRendering() {
         compose.onAllNodesWithText("Rules").onFirst().performClick()
-        compose.onNodeWithText("+ Create rule").performScrollTo().performClick()
-        compose.onNodeWithText("Save rule").performScrollTo().performClick()
+        compose.runOnIdle {
+            Store.saveRules(compose.activity,Store.rules(compose.activity)+LocalRule(id="existing-rms-ui",condition=Condition.Rms(.15,true)))
+        }
         compose.onAllNodesWithText("Edit").onFirst().performClick()
         compose.onNodeWithText("Save changes").performScrollTo().performClick()
         compose.runOnIdle {
             Store.saveRules(compose.activity,Store.rules(compose.activity)+LocalRule(id="pinned-profile-test",enabled=false,condition=Condition.Audio("rain",modelVersion="unsupported-pinned-model"),policy=Policy(45000,false),text="Retain this rule note"))
         }
         compose.onAllNodesWithText("Edit").onLast().performScrollTo().performClick()
-        compose.onNodeWithText("Short sound · provisional").performScrollTo().performClick()
+        compose.onNodeWithText("Persistence ms (0–60000)").performScrollTo().performTextReplacement("500")
         compose.runOnIdle {
             assertEquals(3000L,(Store.rules(compose.activity).first { it.id=="pinned-profile-test" }.condition as Condition.Audio).minDurationMs)
         }

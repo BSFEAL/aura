@@ -217,7 +217,8 @@ class MainActivity : ComponentActivity() {
                         var naturalBuilder by rememberSaveable { mutableStateOf(false) }
                         BackHandler(enabled=naturalBuilder) { naturalBuilder=false }
                         Text("Manage when AURA should notify you",color=AuraColors.Muted)
-                        OutlinedButton(onClick={naturalBuilder=!naturalBuilder}) { Text(if(naturalBuilder) "Back to rule management" else "Natural-language builder") }
+                        if(naturalBuilder) TextButton(onClick={naturalBuilder=false}) { Text("← Back to rule management") }
+                        else Button(onClick={naturalBuilder=true},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text("+ Create rule") }
                         if(naturalBuilder) NaturalRuleBuilder(base,token,onConfig={b,t->base=b;token=t},onMessage={message=it})
                         else RuleEditor(rules,onMessage={message=it})
                     }
@@ -348,6 +349,8 @@ class MainActivity : ComponentActivity() {
     }
     @Composable private fun NaturalRuleBuilder(base: String, token: String, onConfig: (String,String)->Unit, onMessage: (String)->Unit) {
         var request by remember { mutableStateOf("") }
+        var input by remember { mutableStateOf("") }
+        var conversation by remember { mutableStateOf<List<RuleChatTurn>>(emptyList()) }
         var result by remember { mutableStateOf<RulePlan?>(null) }
         var planning by remember { mutableStateOf(false) }
         var consent by remember { mutableStateOf(false) }
@@ -357,8 +360,9 @@ class MainActivity : ComponentActivity() {
         val keyboard=LocalSoftwareKeyboardController.current
         val scope=rememberCoroutineScope()
         val stopped=!MonitorService.active.value && !MonitorService.finishing.value
-        Text("Describe a monitoring rule",style=MaterialTheme.typography.titleLarge)
-        Text("$providerName rule preview via your local/private backend. Only rule text and the supported catalog are sent to $providerName; microphone audio stays on-device. Provider keys belong in the backend environment, never this app. Provider retention policies apply.")
+        Text("Create a rule through chat",style=MaterialTheme.typography.titleLarge)
+        Text("Describe the event in your own words. No sound or rule settings are preselected. AURA can propose settings for your approval; nothing is saved or activated by chatting.")
+        Text("The conversation text and supported catalog are sent to $providerName through your private backend. Microphone audio stays on-device. Provider keys stay on your backend; provider retention policies apply.",style=MaterialTheme.typography.bodySmall,color=AuraColors.Muted)
         Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
             listOf("openai" to "OpenAI","anthropic" to "Anthropic").forEach { (id,label) ->
                 OutlinedButton(enabled=stopped && !planning,onClick={provider=id;result=null;consent=false}) { Text(if(provider==id) "$label ✓" else label) }
@@ -366,29 +370,31 @@ class MainActivity : ComponentActivity() {
         }
         OutlinedTextField(value=base,onValueChange={onConfig(it,token);result=null;consent=false},enabled=stopped && !planning,label={Text("Private HTTPS backend URL")},keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Uri),singleLine=true,modifier=Modifier.fillMaxWidth())
         OutlinedTextField(value=token,onValueChange={onConfig(base,it);result=null;consent=false},enabled=stopped && !planning,label={Text("AURA API token (not a provider key)")},visualTransformation=PasswordVisualTransformation(),keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Password),singleLine=true,modifier=Modifier.fillMaxWidth())
-        OutlinedTextField(value=request,onValueChange={request=it;result=null},enabled=stopped && !planning,
-            label={Text("What should AURA monitor?")},supportingText={Text("${request.length}/240 characters · preview before saving")},modifier=Modifier.fillMaxWidth())
-        Row(Modifier.testTag("natural-rule-examples").horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-            listOf("Barking example" to "Notify me when my dog barks for 2 seconds, with a cooldown of 30 seconds",
-                "Faucet example" to "Notify me when the tap is running for 3 seconds",
-                "Doorbell example" to "Notify me when the doorbell rings").forEach { (label,example) ->
-                OutlinedButton(enabled=stopped && !planning,onClick={focus.clearFocus();keyboard?.hide();request=example;result=null}) { Text(label) }
-            }
-        }
-        Row { Text("Allow sending this rule text to $providerName through my backend",Modifier.weight(1f)); Checkbox(modifier=Modifier.semantics { contentDescription="Consent to $providerName rule text sharing" },checked=consent,onCheckedChange={consent=it;result=null},enabled=stopped && !planning) }
-        Button(enabled=stopped && !planning && consent && base.isNotBlank() && token.length>=24 && request.isNotBlank() && request.length<=240,onClick={
+        if(request.isNotBlank()) AuraPanel { Text("You",color=AuraColors.Cyan);Text(request) }
+        conversation.forEach { turn -> AuraPanel { Text(if(turn.role=="user") "You" else "AURA · proposed, unverified",color=if(turn.role=="user") AuraColors.Cyan else AuraColors.Indigo);Text(turn.text) } }
+        OutlinedTextField(value=input,onValueChange={input=it;result=null},enabled=stopped && !planning,
+            label={Text("What should AURA monitor?")},supportingText={Text("${input.length}/240 characters · describe or refine your rule")},modifier=Modifier.fillMaxWidth())
+        Row { Text("Allow sharing this conversation with $providerName through my backend",Modifier.weight(1f)); Checkbox(modifier=Modifier.semantics { contentDescription="Consent to $providerName rule text sharing" },checked=consent,onCheckedChange={consent=it;result=null},enabled=stopped && !planning) }
+        Button(enabled=stopped && !planning && consent && base.isNotBlank() && token.length>=24 && input.isNotBlank() && input.length<=240 && conversation.size<12,onClick={
             focus.clearFocus();keyboard?.hide()
-            val submitted=request;planning=true;result=null
+            val submitted=if(request.isBlank()) input else request
+            val turns=if(request.isBlank()) emptyList() else conversation+RuleChatTurn("user",input)
+            planning=true;result=null
             scope.launch {
                 try {
                     val planner=rulePlannerFactory(base,token,Store.localDeviceId(this@MainActivity),provider)
-                    val proposal=planner.propose(submitted)
-                    if(request==submitted) result=proposal
+                    val proposal=planner.converse(submitted,turns)
+                    request=submitted;input="";result=proposal
+                    val response=when(proposal) { is RulePlan.Clarify -> proposal.message;is RulePlan.Ready -> proposal.draft.chatSummary() }
+                    conversation=turns+RuleChatTurn("assistant",response).validate()
                 } catch(e: CancellationException) { throw e }
-                catch(_: Exception) { onMessage("Rule preview failed. Check private HTTPS URL, AURA token and backend provider setup. No rule saved.") }
+                catch(_: Exception) { onMessage("Chat failed. Check private HTTPS URL, AURA token and backend provider setup. No rule saved.") }
                 finally { planning=false }
             }
-        }) { Text(if(planning) "Preparing preview…" else "Send text to $providerName & preview") }
+        }) { Text(if(planning) "Preparing reply…" else "Send to $providerName") }
+        if(conversation.size>=12) Text("Conversation limit reached. Review the proposal or start a new conversation; context is never silently dropped.")
+        TextButton(enabled=!planning,onClick={request="";input="";conversation=emptyList();result=null;consent=false}) { Text("New conversation") }
+        Text("Learning from an event recording is a future feature. No recording is captured, stored or uploaded here.",style=MaterialTheme.typography.bodySmall,color=AuraColors.Muted)
         when(val proposal=result) {
             is RulePlan.Clarify -> Text("Clarification needed: ${proposal.message}",color=MaterialTheme.colorScheme.secondary)
             is RulePlan.Ready -> {
@@ -408,12 +414,12 @@ class MainActivity : ComponentActivity() {
                     }
                     Text("Cooldown ${draft.policy.cooldownMs} ms · notify ${draft.policy.notify} · saved disabled")
                     draft.assumptions.forEach { Text(it,style=MaterialTheme.typography.bodySmall) }
-                    Button(enabled=stopped && !planning && request==draft.request,onClick={
+                    Button(enabled=stopped && !planning && request==draft.request && input.isBlank(),onClick={
                         try {
-                            check(request==draft.request && !MonitorService.active.value && !MonitorService.finishing.value) { "Preview again while monitoring is stopped" }
+                            check(request==draft.request && input.isBlank() && !MonitorService.active.value && !MonitorService.finishing.value) { "Preview again while monitoring is stopped" }
                             val rule=draft.asDisabledRule(UUID.randomUUID().toString(),Store.localDeviceId(this@MainActivity))
                             Store.saveRules(this@MainActivity,Store.rules(this@MainActivity)+rule)
-                            result=null;request="";onMessage("Disabled rule saved. Review and enable it in Rules, then Start monitoring explicitly.")
+                            result=null;request="";input="";conversation=emptyList();onMessage("Disabled rule saved. Review and enable it in Rules, then Start monitoring explicitly.")
                         } catch(_: Exception) { onMessage("Rule could not be saved. Check local capacity and preview again while stopped.") }
                     }) { Text("Save disabled rule") }
                     TextButton(onClick={result=null}) { Text("Discard preview") }
@@ -424,21 +430,19 @@ class MainActivity : ComponentActivity() {
     }
     @Composable private fun RuleEditor(rules: List<LocalRule>,onMessage: (String)->Unit) {
         var editing by remember { mutableStateOf<LocalRule?>(null) }
-        var eventType by remember { mutableStateOf("rms_above") }
-        var value by remember { mutableStateOf("0.15") }
+        var eventType by remember { mutableStateOf("") }
+        var value by remember { mutableStateOf("") }
         var classId by remember { mutableStateOf<String?>(null) }
-        var release by remember { mutableStateOf("0.5") }
-        var persistence by remember { mutableStateOf("3000") }
-        var gap by remember { mutableStateOf("1000") }
-        var alpha by remember { mutableStateOf("0.5") }
-        var cooldown by remember { mutableStateOf("30000") }
-        var notify by remember { mutableStateOf(true) }
-        var natural by remember { mutableStateOf("Notify me when sound level is above 0.15") }
+        var release by remember { mutableStateOf("") }
+        var persistence by remember { mutableStateOf("") }
+        var gap by remember { mutableStateOf("") }
+        var alpha by remember { mutableStateOf("") }
+        var cooldown by remember { mutableStateOf("") }
+        var notify by remember { mutableStateOf(false) }
         var showForm by remember { mutableStateOf(false) }
         BackHandler(enabled=showForm) { editing=null;showForm=false }
         if(!showForm) {
-            Button(onClick={showForm=true;editing=null},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text("+ Create rule") }
-            if(rules.isEmpty()) AuraPanel { Text("No rules yet",style=MaterialTheme.typography.titleLarge);Text("Create a sound or RMS rule, or use the natural-language builder. Creating a rule never activates the microphone.") }
+            if(rules.isEmpty()) AuraPanel { Text("No rules yet",style=MaterialTheme.typography.titleLarge);Text("Describe your own event in chat to create a rule. AURA proposes settings only for your approval. No microphone activates automatically.") }
         rules.forEach { rule -> AuraPanel {
             Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
                 AuraIcon((rule.condition as? Condition.Audio)?.eventType ?: "rms_above",Modifier.size(32.dp))
@@ -468,19 +472,13 @@ class MainActivity : ComponentActivity() {
             return
         }
         TextButton(onClick={editing=null;showForm=false}) { Text("← Back to rules") }
-        Text(if(editing==null) "Create a typed rule" else "Edit ${editing?.label}",style=MaterialTheme.typography.titleMedium)
+        Text("Edit ${editing?.label}",style=MaterialTheme.typography.titleMedium)
+        Text("These are the saved settings of your existing rule, not a preset for a new rule.",style=MaterialTheme.typography.bodySmall)
         Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-            (listOf("rms_above" to "RMS")+SoundCatalog.events.map { it.id to it.label }).forEach { (id,label) -> FilterChip(selected=eventType==id,onClick={eventType=id;classId=null;value=if(id=="rms_above") "0.15" else "0.7"},label={Text(label)}) }
+            (listOf("rms_above" to "RMS")+SoundCatalog.events.map { it.id to it.label }).forEach { (id,label) -> FilterChip(selected=eventType==id,onClick={eventType=id;classId=null},label={Text(label)}) }
         }
         OutlinedTextField(value=value,onValueChange={value=it},label={Text(if(eventType=="rms_above") "RMS threshold" else "Activation score (provisional)")},keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Decimal),modifier=Modifier.fillMaxWidth())
-        Slider(value=(value.toFloatOrNull()?.takeIf { it.isFinite() } ?: .7f).coerceIn(.01f,1f),onValueChange={value="%.2f".format(java.util.Locale.US,it)},valueRange=.01f..1f,modifier=Modifier.semantics { contentDescription="Activation threshold" })
         if(eventType!="rms_above") {
-            Text("Optional presets · uncalibrated starting points. Applying one only changes this form; Save is required. Existing saved rules do not change automatically.")
-            RulePresets.all.forEach { preset -> OutlinedButton(enabled=!MonitorService.active.value && !MonitorService.finishing.value,onClick={
-                val c=preset.apply(Condition.Audio(eventType,classId=classId))
-                value=c.minScore.toString();release=c.releaseScore.toString();persistence=c.minDurationMs.toString();gap=c.maxGapMs.toString();alpha=c.emaAlpha.toString()
-                onMessage("${preset.label}: score $value / release $release, persistence $persistence ms, gap $gap ms, EMA $alpha. Cooldown, notify and pinned versions are unchanged. Review then Save.")
-            }) { Text(preset.label) } }
             Text("Mapped classes: "+(classId?.let { setOf(it) } ?: requireNotNull(SoundCatalog.event(eventType)).classIds).sorted().joinToString { "${SoundCatalog.classLabels[it]} ($it)" })
             if(eventType=="dog_bark") Text("This rule uses Bark, not the broader Dog class. A high Dog score alone does not satisfy it.")
             Text("Per-class threshold scope (all mapped classes use max score by default)")
@@ -490,17 +488,15 @@ class MainActivity : ComponentActivity() {
             }
             OutlinedTextField(value=release,onValueChange={release=it},label={Text("Release score (< activation)")},modifier=Modifier.fillMaxWidth())
             OutlinedTextField(value=persistence,onValueChange={persistence=it},label={Text("Persistence ms (0–60000)")},modifier=Modifier.fillMaxWidth())
-            Slider(value=(persistence.toFloatOrNull()?.takeIf { it.isFinite() } ?: 0f).coerceIn(0f,60000f),onValueChange={persistence=it.toLong().toString()},valueRange=0f..60000f,modifier=Modifier.semantics { contentDescription="Minimum duration" })
             OutlinedTextField(value=gap,onValueChange={gap=it},label={Text("Max gap ms (0–10000)")},modifier=Modifier.fillMaxWidth())
-            Slider(value=(gap.toFloatOrNull()?.takeIf { it.isFinite() } ?: 0f).coerceIn(0f,10000f),onValueChange={gap=it.toLong().toString()},valueRange=0f..10000f,modifier=Modifier.semantics { contentDescription="Maximum gap" })
             OutlinedTextField(value=alpha,onValueChange={alpha=it},label={Text("EMA alpha (0.01–1)")},modifier=Modifier.fillMaxWidth())
             Text("${if(MonitorService.modelLoaded.value) "Classifier available" else "Classifier inactive/unavailable until monitoring starts"}. Scores are uncalibrated. Doorbell means a sound, not a door opening.")
         }
         OutlinedTextField(value=cooldown,onValueChange={cooldown=it},label={Text("Cooldown ms (0–3600000)")},modifier=Modifier.fillMaxWidth())
-        Slider(value=(cooldown.toFloatOrNull()?.takeIf { it.isFinite() } ?: 0f).coerceIn(0f,3600000f),onValueChange={cooldown=it.toLong().toString()},valueRange=0f..3600000f,modifier=Modifier.semantics { contentDescription="Cooldown period" })
         Row { Text("Notify for this rule",Modifier.weight(1f)); Switch(modifier=Modifier.semantics { contentDescription="Notify for this rule" },checked=notify,onCheckedChange={notify=it}) }
         Button(enabled=!MonitorService.active.value && !MonitorService.finishing.value,onClick={
             try {
+                check(editing!=null) { "Create new rules through chat" }
                 val condition=if(eventType=="rms_above") Condition.Rms(value.toDouble(),(editing?.condition as? Condition.Rms)?.legacyRepeat ?: false) else Condition.Audio(eventType,value.toFloat(),release.toFloat(),persistence.toLong(),gap.toLong(),alpha.toFloat(),
                     modelVersion=(editing?.condition as? Condition.Audio)?.modelVersion ?: ModelSpec.VERSION,
                     mappingVersion=(editing?.condition as? Condition.Audio)?.mappingVersion ?: ModelSpec.MAPPING,
@@ -509,14 +505,7 @@ class MainActivity : ComponentActivity() {
                 Store.saveRules(this@MainActivity,rules.filter { it.id!=rule.id }+rule);editing=null;showForm=false;onMessage("Rule saved; microphone activation remains manual")
             } catch(_: Exception) { onMessage("Invalid rule. Check finite scores, release < activation, duration/gap/cooldown ranges and selected capability.") }
         }) { Text(if(editing==null) "Save rule" else "Save changes") }
-        if(editing!=null) TextButton(onClick={editing=null}) { Text("Cancel edit") }
-        Text("Legacy RMS language input")
-        OutlinedTextField(value=natural,onValueChange={natural=it},label={Text("Natural language RMS rule")},modifier=Modifier.fillMaxWidth())
-        Button(enabled=!MonitorService.active.value && !MonitorService.finishing.value,onClick={
-            val threshold=Signal.parseRule(natural)
-            if(threshold==null) onMessage("Supported: Notify me when sound level is above 0.15")
-            else try { Store.saveRules(this@MainActivity,rules+LocalRule(id=UUID.randomUUID().toString(),source=Source(Store.localDeviceId(this@MainActivity)),condition=Condition.Rms(threshold,true),text=natural));onMessage("RMS rule saved") } catch(e: Exception) { onMessage(e.message ?: "Could not save") }
-        }) { Text("Create local RMS rule") }
+        if(editing!=null) TextButton(onClick={editing=null;showForm=false}) { Text("Cancel edit") }
         Text("Stop monitoring to edit or create rules. Changing a rule resets its detector. Unsupported model/mapping versions are displayed and never evaluated.")
     }
     private fun date(ms: Long)=DateFormat.getDateTimeInstance().format(Date(ms))
