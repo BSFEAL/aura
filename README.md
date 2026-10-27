@@ -120,3 +120,7 @@ See [VALIDATION.md](VALIDATION.md) for executed results/measurements, [MODEL_CAR
 ### Anthropic alternative (v0.4.1)
 
 The natural-language rule preview now offers OpenAI or Anthropic, with provider-specific consent and server-only keys. See [Anthropic setup and safeguards](docs/ANTHROPIC_RULE_BUILDER.md). No automatic provider fallback; saved rules remain local and disabled until explicitly enabled.
+
+### Android UI v0.4.2
+
+The Android interface adopts the navy/cyan AURA design with bottom navigation on phones, a navigation rail and two-column dashboard on tablets, rule-management cards and event details. See [UI design and validation](docs/ANDROID_UI_DESIGN.md). All audio remains transient; playback/spectrograms are omitted because no recordings exist.

@@ -91,7 +91,7 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           working-directory: android
-          script: ./gradlew connectedDebugAndroidTest --no-daemon
+          script: ./gradlew connectedDebugAndroidTest --no-daemon && adb pull /sdcard/Android/data/systems.kaula.aura/files/screenshots app/build/outputs/ui-screenshots
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -99,3 +99,4 @@ jobs:
           path: |
             android/app/build/reports/androidTests
             android/app/build/outputs/androidTest-results
+            android/app/build/outputs/ui-screenshots
