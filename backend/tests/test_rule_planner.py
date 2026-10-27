@@ -147,3 +147,24 @@ def test_live_smoke_requires_consent_and_safe_transport(tmp_path):
     for args in ([],['--allow-send-text','--backend','http://192.0.2.1:8000'],['--allow-send-text']):
         result=subprocess.run([sys.executable,str(script),*args],env=env,capture_output=True,text=True,timeout=5)
         assert result.returncode==2  # Guards return before making a network request.
+
+
+def test_live_smoke_checks_the_known_prompt_mapping(monkeypatch):
+    import importlib.util
+    from pathlib import Path
+    import sys
+    path=Path(__file__).resolve().parents[2]/'tools/openai_rule_smoke.py'
+    spec=importlib.util.spec_from_file_location('planner_smoke',path)
+    smoke=importlib.util.module_from_spec(spec);spec.loader.exec_module(smoke)
+    monkeypatch.setattr(sys,'argv',[str(path),'--allow-send-text'])
+    monkeypatch.setenv('AURA_API_TOKEN','test-aura-token-at-least-24')
+    value=planner.validated_preview(planner.PreviewInput(**request(device_id='local-smoke-phone')),planner.LlmOutput.model_validate(output()),planner.MODEL).model_dump(mode='json')
+    class MockClient:
+        def __init__(self,**kwargs): pass
+        def __enter__(self): return self
+        def __exit__(self,*args): pass
+        def post(self,*args,**kwargs): return httpx.Response(200,json=value)
+    monkeypatch.setattr(smoke.httpx,'Client',MockClient)
+    assert smoke.main()==0
+    value['proposal']['condition']['event_type']='rain'
+    assert smoke.main()==1

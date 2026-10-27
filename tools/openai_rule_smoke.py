@@ -29,7 +29,14 @@ def main():
         if value.get('status')!='ready' or value.get('proposal',{}).get('enabled') is not False:
             print('Planner requested clarification or returned no disabled proposal; no rule saved.')
             return 1
-        print('Live planner returned a validated disabled proposal. Model: '+str(value.get('planner_model','unknown')))
+        proposal=value['proposal']
+        condition=proposal.get('condition',{})
+        if (value.get('mode')!='openai' or condition.get('type')!='audio_event' or condition.get('event_type')!='dog_bark'
+                or condition.get('min_duration_ms')!=2000 or value.get('classes')!=[{'class_id':'/m/05tny_','label':'Bark'}]
+                or proposal.get('source',{}).get('device_id')!='local-smoke-phone'):
+            print('Live planner did not match the expected Bark class and 2-second persistence; no rule saved.')
+            return 1
+        print('Live planner matched Bark and 2-second persistence. Model: '+str(value.get('planner_model','unknown')))
         print('Review it in the app before saving. No rule was saved by this smoke test.')
         return 0
     except (httpx.HTTPError,ValueError):
