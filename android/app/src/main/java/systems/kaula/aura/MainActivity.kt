@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -275,7 +276,7 @@ class MainActivity : ComponentActivity() {
         OutlinedTextField(value=token,onValueChange={onConfig(base,it);result=null;consent=false},enabled=stopped && !planning,label={Text("AURA API token (not the OpenAI key)")},visualTransformation=PasswordVisualTransformation(),keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Password),singleLine=true,modifier=Modifier.fillMaxWidth())
         OutlinedTextField(value=request,onValueChange={request=it;result=null},enabled=stopped && !planning,
             label={Text("What should AURA monitor?")},supportingText={Text("${request.length}/240 characters · preview before saving")},modifier=Modifier.fillMaxWidth())
-        Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.testTag("natural-rule-examples").horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
             listOf("Barking example" to "Notify me when my dog barks for 2 seconds, with a cooldown of 30 seconds",
                 "Faucet example" to "Notify me when the tap is running for 3 seconds",
                 "Doorbell example" to "Notify me when the doorbell rings").forEach { (label,example) ->
