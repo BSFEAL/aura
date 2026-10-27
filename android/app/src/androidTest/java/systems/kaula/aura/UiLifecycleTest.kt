@@ -22,6 +22,12 @@ class UiLifecycleTest {
             java.io.FileInputStream(it.fileDescriptor).bufferedReader().use { reader->reader.readText() }
         }
     }
+    @Test fun backupControlsAreVisibleWithoutStartingMonitoring() {
+        compose.onAllNodesWithText("Backup").onFirst().performScrollTo().performClick()
+        compose.onNodeWithText("Export metadata backup").performScrollTo().assertIsEnabled()
+        compose.onNodeWithText("Restore from backup").performScrollTo().assertIsEnabled()
+        assertFalse(MonitorService.active.value)
+    }
     @Test fun deniedPermissionNeverActivatesMicrophone() {
         val pkg=compose.activity.packageName
         assertNotEquals(android.content.pm.PackageManager.PERMISSION_GRANTED,compose.activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO))

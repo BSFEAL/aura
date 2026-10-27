@@ -9,6 +9,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -28,10 +29,42 @@ import java.util.Date
 import java.util.UUID
 
 class MainActivity : ComponentActivity() {
+    private val fileBusy=mutableStateOf(false)
+    private val backupMessage=mutableStateOf("")
+    private val pendingRestore=mutableStateOf<LocalBackup?>(null)
+    private val exportBackup=registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        fileBusy.value=uri!=null
+        if(uri==null) fileBusy.value=false else lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val bytes=BackupCodec.encode(Store.backup(this@MainActivity))
+                    requireNotNull(contentResolver.openOutputStream(uri,"wt")) { "Cannot open selected file" }.use { it.write(bytes) }
+                }
+                backupMessage.value="Metadata backup saved. Keep it private; no audio or credentials included."
+            } catch(e: CancellationException) { throw e }
+            catch(_: Exception) { backupMessage.value="Backup not completed. Check storage and remove any incomplete file." }
+            finally { fileBusy.value=false }
+        }
+    }
+    private val importBackup=registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        fileBusy.value=uri!=null
+        if(uri==null) fileBusy.value=false else lifecycleScope.launch {
+            try {
+                val candidate=withContext(Dispatchers.IO) {
+                    requireNotNull(contentResolver.openInputStream(uri)) { "Cannot open selected file" }.use { BackupCodec.read(it) }
+                }
+                check(!MonitorService.active.value && !MonitorService.finishing.value) { "Stop monitoring before restore" }
+                pendingRestore.value=candidate
+            } catch(e: CancellationException) { throw e }
+            catch(_: Exception) { backupMessage.value="Backup could not be read or validated. Existing data kept. Use an AURA metadata backup up to 1 MiB." }
+            finally { fileBusy.value=false }
+        }
+    }
     private val permissions=registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
         MonitorService.error.value=if(results.values.all { it }) "Permissions granted. Tap Start monitoring to activate the microphone." else "Microphone and notification permission required. Restore denied permissions in Android settings."
     }
     private fun startMonitoring() {
+        if(fileBusy.value || pendingRestore.value!=null) return
         val required=mutableListOf(Manifest.permission.RECORD_AUDIO)
         if(Build.VERSION.SDK_INT>=33) required+=Manifest.permission.POST_NOTIFICATIONS
         if(required.any { checkSelfPermission(it)!=PackageManager.PERMISSION_GRANTED }) { permissions.launch(required.toTypedArray()); return }
@@ -60,9 +93,9 @@ class MainActivity : ComponentActivity() {
         Scaffold(topBar={
             Column(Modifier.background(MaterialTheme.colorScheme.background).statusBarsPadding().padding(horizontal=20.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                 Text("AURA ◌",style=MaterialTheme.typography.headlineLarge,color=MaterialTheme.colorScheme.primary)
-                Text("SOUND INTELLIGENCE · by kaula.systems · v0.3",style=MaterialTheme.typography.labelSmall)
+                Text("SOUND INTELLIGENCE · by kaula.systems · v0.3.1",style=MaterialTheme.typography.labelSmall)
                 Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                    listOf("Dashboard","Live","Rules","Events","Diagnostics","Devices","Alerts").forEach { page -> FilterChip(selected=tab==page,onClick={tab=page},label={Text(page)}) }
+                    listOf("Dashboard","Live","Rules","Events","Diagnostics","Backup","Devices","Alerts").forEach { page -> FilterChip(selected=tab==page,onClick={tab=page},label={Text(page)}) }
                 }
             }
         }) { padding ->
@@ -73,11 +106,12 @@ class MainActivity : ComponentActivity() {
                     Text("Uncalibrated RMS %.3f".format(MonitorService.level.doubleValue))
                     Text(if(MonitorService.modelLoaded.value) "On-device YAMNet inference · no audio upload" else "Classifier inactive/unavailable · RMS remains independent",style=MaterialTheme.typography.labelMedium)
                     if(MonitorService.active.value) Button(onClick={stopService(Intent(this@MainActivity,MonitorService::class.java))}) { Text("Stop monitoring") }
-                    else Button(enabled=!syncing && !MonitorService.finishing.value,onClick={startMonitoring()}) { Text("Start monitoring") }
+                    else Button(enabled=!syncing && !fileBusy.value && !MonitorService.finishing.value,onClick={startMonitoring()}) { Text("Start monitoring") }
                 } }
                 if(MonitorService.error.value.isNotBlank()) Text(MonitorService.error.value,color=MaterialTheme.colorScheme.secondary)
                 if(Store.error.value.isNotBlank()) Text(Store.error.value,color=MaterialTheme.colorScheme.error)
                 if(message.isNotBlank()) Text(message,color=MaterialTheme.colorScheme.secondary)
+                if(backupMessage.value.isNotBlank()) Text(backupMessage.value,color=MaterialTheme.colorScheme.secondary)
                 when(tab) {
                     "Dashboard" -> {
                         Text("Stay aware. Stay in control.",style=MaterialTheme.typography.headlineMedium)
@@ -114,6 +148,7 @@ class MainActivity : ComponentActivity() {
                         events.forEach { event -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
                             Text(event.label,style=MaterialTheme.typography.titleMedium)
                             Text("${event.provenance} · ${event.state}",color=MaterialTheme.colorScheme.primary)
+                            if(event.restoredFromBackup) Text("Restored metadata · unverified · no alert replayed",style=MaterialTheme.typography.labelSmall)
                             Text("Start ${date(event.startMs)} · ${if(event.endMs==null) "active / duration updates at end" else "${event.durationMs} ms"}")
                             Text("${event.classId ?: "rms_above"} · RMS %.3f".format(event.rms),style=MaterialTheme.typography.labelSmall)
                             if(event.peakScore!=null) Text("Peak %.3f · mean %.3f (uncalibrated)".format(event.peakScore,event.meanScore))
@@ -132,13 +167,24 @@ class MainActivity : ComponentActivity() {
                         }) { Text("Save cadence") }
                         Text("500 ms default uses overlapping 975 ms windows. Faster cadence uses more processing; slower cadence may miss short sounds. No RMS noise gate is used, so quiet events are not discarded by an amplitude threshold. Battery and thermal measurements require a physical phone.")
                     }
+                    "Backup" -> {
+                        Text("Local metadata backup",style=MaterialTheme.typography.titleLarge)
+                        Text("Save rules and the latest 200 events before changing or reinstalling the app. This feature cannot recover data already removed by an uninstall.")
+                        Text("The JSON file contains labels, device IDs, timestamps and uncalibrated scores. It contains no microphone audio, API token, server URL or sync credentials. It is not encrypted; choose a trusted location. A cloud file provider may upload it if you choose one.")
+                        Text("Restore merges without replacing existing IDs. Conflicts or capacity overflow reject the entire restore. Newly restored rules are disabled and assigned to this phone; review and enable them yourself. Model and threshold versions stay pinned. History keeps its original device and provenance, labeled as restored and unverified. No microphone activation or alert replay.")
+                        val available=!syncing && !fileBusy.value && !MonitorService.active.value && !MonitorService.finishing.value
+                        Button(enabled=available,onClick={fileBusy.value=true;backupMessage.value="";exportBackup.launch("aura-metadata-${System.currentTimeMillis()}.json")}) { Text("Export metadata backup") }
+                        OutlinedButton(enabled=available,onClick={fileBusy.value=true;backupMessage.value="";importBackup.launch(arrayOf("application/json","text/plain","application/octet-stream"))}) { Text("Restore from backup") }
+                        if(fileBusy.value) Text("Working with the selected file…")
+                        Text("Stop monitoring before backup or restore. Only AURA metadata format 1 is accepted (up to 1 MiB, 128 rules and 200 events). Android's file picker grants access only to your chosen file; no broad storage permission is requested.")
+                    }
                     "Devices" -> {
                         Text("Local phone ${Store.localDeviceId(this@MainActivity)}")
                         Text("Optional explicit HTTPS sync sends event metadata and scores, never audio. Stop monitoring before syncing. Tokens stay in memory.")
                         OutlinedTextField(value=base,onValueChange={base=it},label={Text("HTTPS backend URL")},modifier=Modifier.fillMaxWidth())
                         OutlinedTextField(value=token,onValueChange={token=it},label={Text("API token (not saved)")},visualTransformation=PasswordVisualTransformation(),modifier=Modifier.fillMaxWidth())
                         OutlinedTextField(value=deviceId,onValueChange={deviceId=it},label={Text("Device ID; blank registers phone")},modifier=Modifier.fillMaxWidth())
-                        Button(enabled=!syncing && !MonitorService.active.value && !MonitorService.finishing.value,onClick={
+                        Button(enabled=!syncing && !fileBusy.value && !MonitorService.active.value && !MonitorService.finishing.value,onClick={
                             syncing=true
                             val b=base; val t=token; val d=deviceId
                             scope.launch {
@@ -156,6 +202,23 @@ class MainActivity : ComponentActivity() {
                 }
                 Spacer(Modifier.height(20.dp))
             }
+        }
+        pendingRestore.value?.let { backup ->
+            AlertDialog(onDismissRequest={pendingRestore.value=null},title={Text("Restore metadata?")},
+                text={Text("File contains ${backup.rules.size} rules and ${backup.events.size} events. Existing data is kept. New rules will be disabled. Restored history is unverified. No microphone or notifications will start.")},
+                dismissButton={TextButton(onClick={pendingRestore.value=null}) { Text("Cancel") }},
+                confirmButton={TextButton(onClick={
+                    pendingRestore.value=null;fileBusy.value=true
+                    lifecycleScope.launch {
+                        try {
+                            val plan=withContext(Dispatchers.IO) { Store.restore(this@MainActivity,backup) }
+                            backupMessage.value="Restored ${plan.addedRules} disabled rules and ${plan.addedEvents} historical events. Review rules before enabling."
+                        } catch(e: CancellationException) { throw e }
+                        catch(e: IllegalArgumentException) { backupMessage.value=e.message ?: "Restore rejected; existing data kept" }
+                        catch(_: Exception) { backupMessage.value="Restore could not finish. Check storage and local history before retrying." }
+                        finally { fileBusy.value=false }
+                    }
+                }) { Text("Restore disabled rules & history") }})
         }
     }
     @Composable private fun RuleEditor(rules: List<LocalRule>,onMessage: (String)->Unit) {

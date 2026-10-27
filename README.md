@@ -1,4 +1,4 @@
-# AURA v0.3 — Sound Intelligence
+# AURA v0.3.1 — Sound Intelligence
 
 **AURA by kaula.systems** is a local-first ambient intelligence platform. This experimental release adds a real, bundled **on-device YAMNet TFLite classifier**, typed rules, temporal sound episodes and Android diagnostics to the verified v0.2 RMS/Compose/FastAPI/SQLite/TypeScript foundation.
 
@@ -15,6 +15,12 @@ Supported curated model classes: **dog barking, alarm or siren, rain, running wa
 7. **Diagnostics** shows model status, 16 kHz sample rate, measured initialization/inference timings, processed/dropped windows and approximate process memory. Change inference cadence (250–2000 ms; default 500 ms) only between sessions. Faster inference costs more processing; slower inference can miss brief events. No physical-device battery measurements are claimed.
 
 The model is already in the APK; airplane-mode local operation needs no account/server/download. Capture uses 16 kHz mono PCM16, normalized /32768, a bounded 15,600-sample rolling window, and one inference consumer with at most one queued window. No raw microphone audio is saved, logged or uploaded. No RMS noise gate discards quiet inputs. Inference exceptions clear sound evidence and preserve explicit RMS-only monitoring.
+
+## Local metadata backup (v0.3.1)
+
+Stop monitoring, open **Backup → Export metadata backup**, and choose a private file location. **Restore from backup** validates the file and asks for confirmation before merging rules/history. New rules are disabled and assigned to this phone; review and enable them yourself. Event device IDs, timestamps, scores and model versions remain historical metadata, visibly marked restored/unverified. No microphone activation, alert replay or automatic sync occurs.
+
+Backups contain no audio, credentials, backend URL or sync bookkeeping. Files are unencrypted metadata; a selected cloud file provider may upload them. Invalid, conflicting or oversized restores are rejected without replacing existing rules/history. Existing IDs are retained; limits are 128 rules, 200 events and 1 MiB. See [LOCAL_BACKUP.md](docs/LOCAL_BACKUP.md) for exact semantics and phone tests. This feature cannot recover an earlier uninstall or bypass APK signing requirements. Keep your current working APK unless a compatible update is available.
 
 ## Rules, episodes and storage
 
@@ -97,4 +103,4 @@ Android: JDK 17, Gradle 8.9 (checksummed wrapper), AGP 8.7.3, Kotlin 2.0.21, SDK
 
 Existing Python/web/Android workflows remain, with model integrity/real-inference smoke and emulator integration added. CI publishes `aura-v0.3-debug-apk`, web bundle, model smoke metrics, lint/JVM reports and emulator reports. Failures propagate. No real microphone hardware is required for emulator inference.
 
-See [VALIDATION.md](VALIDATION.md) for executed results/measurements, [MODEL_CARD.md](docs/MODEL_CARD.md) for provenance, [AUDIO_EVALUATION.md](docs/AUDIO_EVALUATION.md) for calibration tooling, and [ANDROID_V03_VALIDATION.md](docs/ANDROID_V03_VALIDATION.md) for the physical-device matrix. **All physical-device tests remain pending until performed.**
+See [VALIDATION.md](VALIDATION.md) for executed results/measurements, [MODEL_CARD.md](docs/MODEL_CARD.md) for provenance, [AUDIO_EVALUATION.md](docs/AUDIO_EVALUATION.md) for calibration tooling, and [ANDROID_V03_VALIDATION.md](docs/ANDROID_V03_VALIDATION.md) for the physical-device matrix. **Initial user-reported phone checks are recorded separately; detailed device/measurement records and remaining scenarios are still pending.**
