@@ -4,3 +4,7 @@ export type Condition = {type:'rms_above'; threshold:number; legacy_repeat:boole
 export interface Rule { schema_version:2; id:string; enabled:boolean; source:{device_id:string;modality:'audio'};condition:Condition;policy:{cooldown_ms:number;notify:boolean};text:string;remote:boolean }
 export interface AuraEvent { schema_version:2;id:string;device_id:string;rule_id:string|null;rms:number;simulated:boolean;created_at:string;event_type:'rms_above'|SoundEventType;label:string;class_id:string|null;peak_score:number|null;mean_score:number|null;model_version:string|null;provenance:'model_detected'|'simulated'|'device_reported';start_at:string;end_at:string|null;duration_ms:number;notification_status:string;evidence_verified:false }
 export interface Status { version: string; devices: number; enabled_rules: number; events: number; monitoring: string }
+export type RuleProposal = Omit<Rule,'id'|'remote'>;
+export type RulePreview = {schema_version:2;mode:'openai';planner_version:string;planner_model:string} & (
+  {status:'ready';proposal:RuleProposal;classes:{class_id:string;label:string}[];assumptions:string[]} |
+  {status:'clarification';message:string});

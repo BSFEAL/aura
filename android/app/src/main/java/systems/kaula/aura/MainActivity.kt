@@ -30,6 +30,9 @@ import java.util.Date
 import java.util.UUID
 
 class MainActivity : ComponentActivity() {
+    companion object {
+        internal var rulePlannerFactory: (String,String,String)->RulePlanner = { base,token,device -> BackendRulePlanner(base,token,device) }
+    }
     private val systemAlertsAllowed=mutableStateOf(true)
     private val fileBusy=mutableStateOf(false)
     private val backupMessage=mutableStateOf("")
@@ -100,7 +103,7 @@ class MainActivity : ComponentActivity() {
         Scaffold(topBar={
             Column(Modifier.background(MaterialTheme.colorScheme.background).statusBarsPadding().padding(horizontal=20.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                 Text("AURA ◌",style=MaterialTheme.typography.headlineLarge,color=MaterialTheme.colorScheme.primary)
-                Text("SOUND INTELLIGENCE · by kaula.systems · v0.3.2",style=MaterialTheme.typography.labelSmall)
+                Text("SOUND INTELLIGENCE · by kaula.systems · v0.4.0",style=MaterialTheme.typography.labelSmall)
                 Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     listOf("Dashboard","Live","Rules","Events","Diagnostics","Backup","Devices","Alerts").forEach { page -> FilterChip(selected=tab==page,onClick={tab=page},label={Text(page)}) }
                 }
@@ -160,7 +163,11 @@ class MainActivity : ComponentActivity() {
                             } }
                         }
                     }
-                    "Rules" -> RuleEditor(rules,onMessage={message=it})
+                    "Rules" -> {
+                        NaturalRuleBuilder(base,token,onConfig={b,t->base=b;token=t},onMessage={message=it})
+                        HorizontalDivider()
+                        RuleEditor(rules,onMessage={message=it})
+                    }
                     "Events" -> {
                         Text("Event history · latest 200")
                         if(events.isEmpty()) Text("No local episodes. Create a rule, then explicitly start monitoring.")
@@ -247,6 +254,72 @@ class MainActivity : ComponentActivity() {
                         finally { fileBusy.value=false }
                     }
                 }) { Text("Restore disabled rules & history") }})
+        }
+    }
+    @Composable private fun NaturalRuleBuilder(base: String, token: String, onConfig: (String,String)->Unit, onMessage: (String)->Unit) {
+        var request by remember { mutableStateOf("") }
+        var result by remember { mutableStateOf<RulePlan?>(null) }
+        var planning by remember { mutableStateOf(false) }
+        var consent by remember { mutableStateOf(false) }
+        val scope=rememberCoroutineScope()
+        val stopped=!MonitorService.active.value && !MonitorService.finishing.value
+        Text("Describe a monitoring rule",style=MaterialTheme.typography.titleLarge)
+        Text("OpenAI rule preview via your local/private backend. Only rule text and the supported catalog are sent to OpenAI; microphone audio stays on-device. The OpenAI key belongs in the backend environment, never this app. Provider retention policies apply even with storage disabled.")
+        OutlinedTextField(value=base,onValueChange={onConfig(it,token);result=null;consent=false},enabled=stopped && !planning,label={Text("Private HTTPS backend URL")},modifier=Modifier.fillMaxWidth())
+        OutlinedTextField(value=token,onValueChange={onConfig(base,it);result=null;consent=false},enabled=stopped && !planning,label={Text("AURA API token (not the OpenAI key)")},visualTransformation=PasswordVisualTransformation(),modifier=Modifier.fillMaxWidth())
+        OutlinedTextField(value=request,onValueChange={request=it;result=null},enabled=stopped && !planning,
+            label={Text("What should AURA monitor?")},supportingText={Text("${request.length}/240 characters · preview before saving")},modifier=Modifier.fillMaxWidth())
+        Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+            listOf("Barking example" to "Notify me when my dog barks for 2 seconds, with a cooldown of 30 seconds",
+                "Faucet example" to "Notify me when the tap is running for 3 seconds",
+                "Doorbell example" to "Notify me when the doorbell rings").forEach { (label,example) ->
+                OutlinedButton(enabled=stopped && !planning,onClick={request=example;result=null}) { Text(label) }
+            }
+        }
+        Row { Text("Allow sending this rule text to OpenAI through my backend",Modifier.weight(1f)); Checkbox(modifier=Modifier.semantics { contentDescription="Consent to OpenAI rule text sharing" },checked=consent,onCheckedChange={consent=it;result=null},enabled=stopped && !planning) }
+        Button(enabled=stopped && !planning && consent && base.isNotBlank() && token.length>=24 && request.isNotBlank() && request.length<=240,onClick={
+            val submitted=request;planning=true;result=null
+            scope.launch {
+                try {
+                    val planner=rulePlannerFactory(base,token,Store.localDeviceId(this@MainActivity))
+                    val proposal=planner.propose(submitted)
+                    if(request==submitted) result=proposal
+                } catch(e: CancellationException) { throw e }
+                catch(_: Exception) { onMessage("Rule preview failed. Check private HTTPS URL, AURA token and backend OpenAI setup. No rule saved.") }
+                finally { planning=false }
+            }
+        }) { Text(if(planning) "Preparing preview…" else "Send text to OpenAI & preview") }
+        when(val proposal=result) {
+            is RulePlan.Clarify -> Text("Clarification needed: ${proposal.message}",color=MaterialTheme.colorScheme.secondary)
+            is RulePlan.Ready -> {
+                val draft=proposal.draft
+                val preview=draft.asDisabledRule("preview","preview-device")
+                Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                    Text("Review proposed rule",style=MaterialTheme.typography.titleMedium)
+                    Text("OpenAI planner: ${draft.plannerModel} · interpretation unverified",style=MaterialTheme.typography.labelSmall)
+                    Text(preview.label);Text(RuleFeedback.classes(preview))
+                    when(val c=draft.condition) {
+                        is Condition.Audio -> {
+                            Text("Activation ${c.minScore} · release ${c.releaseScore} · EMA ${c.emaAlpha}")
+                            Text("Persistence ${c.minDurationMs} ms · max gap ${c.maxGapMs} ms")
+                            Text("${c.modelVersion} · ${c.mappingVersion} · ${c.thresholdVersion}",style=MaterialTheme.typography.labelSmall)
+                        }
+                        is Condition.Rms -> Text("RMS strictly above ${c.threshold}; legacy repeat ${c.legacyRepeat}")
+                    }
+                    Text("Cooldown ${draft.policy.cooldownMs} ms · notify ${draft.policy.notify} · saved disabled")
+                    draft.assumptions.forEach { Text(it,style=MaterialTheme.typography.bodySmall) }
+                    Button(enabled=stopped && !planning && request==draft.request,onClick={
+                        try {
+                            check(request==draft.request && !MonitorService.active.value && !MonitorService.finishing.value) { "Preview again while monitoring is stopped" }
+                            val rule=draft.asDisabledRule(UUID.randomUUID().toString(),Store.localDeviceId(this@MainActivity))
+                            Store.saveRules(this@MainActivity,Store.rules(this@MainActivity)+rule)
+                            result=null;request="";onMessage("Disabled rule saved. Review and enable it in Rules, then Start monitoring explicitly.")
+                        } catch(_: Exception) { onMessage("Rule could not be saved. Check local capacity and preview again while stopped.") }
+                    }) { Text("Save disabled rule") }
+                    TextButton(onClick={result=null}) { Text("Discard preview") }
+                } }
+            }
+            null -> Unit
         }
     }
     @Composable private fun RuleEditor(rules: List<LocalRule>,onMessage: (String)->Unit) {
