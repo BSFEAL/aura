@@ -28,6 +28,7 @@ import java.util.UUID
     val provenance: String = "device_reported",
     @SerialName("notification_status") val notificationStatus: String = "disabled",
     val state: String = "ended",
+    @SerialName("restored_from_backup") val restoredFromBackup: Boolean = false,
     val rms: Double = 0.0
 )
 fun Episode.toLocalEvent(rule: LocalRule?, deviceId: String, notificationStatus: String, fallbackLabel: String?=null): LocalEvent =
@@ -96,6 +97,25 @@ object Store {
         events(context).filter { it.endMs==null }.forEach {
             saveEvent(context,it.copy(endMs=it.startMs+it.durationMs,state="process_terminated"))
         }
+    }
+    @Synchronized fun backup(context: Context): LocalBackup {
+        check(!MonitorService.active.value && !MonitorService.finishing.value) { "Stop monitoring before backup" }
+        // Decode directly: a backup must fail rather than silently omit quarantined/corrupt entries.
+        fun raw(key: String) = RuleCodec.json.parseToJsonElement(prefs(context).getString(key,"[]") ?: "[]").jsonArray
+        return BackupCodec.validate(LocalBackup(createdAtMs=System.currentTimeMillis(), deviceId=localDeviceId(context),
+            rules=raw("rules").map { RuleCodec.decode(it.toString()) }, events=raw("events").map { EventCodec.decode(it.toString()) }))
+    }
+    @Synchronized fun restore(context: Context, incoming: LocalBackup): RestorePlan {
+        check(!MonitorService.active.value && !MonitorService.finishing.value) { "Stop monitoring before restore" }
+        val current=backup(context)
+        val plan=BackupCodec.merge(incoming,current.rules,current.events,current.deviceId)
+        // One durable write for both collections. Never import settings, credentials, identities or sync markers.
+        val saved=prefs(context).edit()
+            .putString("rules",plan.rules.joinToString(prefix="[",postfix="]") { RuleCodec.encode(it) })
+            .putString("events",plan.events.joinToString(prefix="[",postfix="]") { EventCodec.encode(it) }).commit()
+        check(saved) { "Restore could not be saved; restart the app and check storage" }
+        revision.intValue++
+        return plan
     }
     fun setting(context: Context,key: String)=prefs(context).getString(key,"") ?: ""
     fun setting(context: Context,key: String,value: String) { prefs(context).edit().putString(key,value).apply() }

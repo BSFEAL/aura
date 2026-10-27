@@ -1,8 +1,23 @@
 # AURA v0.3 physical-device validation
 
-**Status: all physical-device scenarios PENDING.** No physical phone is attached to this development environment. Emulator/inference tests do not establish microphone acoustics, background reliability, thermal or battery behavior.
+**Status: initial user-reported checks below; structured validation remains incomplete.** No physical phone is attached to this development environment. Emulator/inference tests do not establish microphone acoustics, background reliability, thermal or battery behavior.
 
 Use an ordinary Android 8+ phone and a trusted debug APK artifact. Upgrades require the same application ID **and signing certificate**. The old GitHub debug signing key was ephemeral; an APK from a different Actions run may not update an installed v0.2 APK. Do not uninstall to “pass” an upgrade test, since uninstall removes data. For the migration test build both versions with the same retained local debug keystore, or obtain the original signing key. This distribution limitation is not a completed upgrade test.
+
+## User-reported session — 2026-10-27
+
+The user reports working local events/dog-bark detection. They subsequently answered “all good” to the requested checks for 10-minute screen-lock monitoring, notification Stop, five-minute quiet-room behavior and five Start/Stop cycles. They also answered “all good” after the requested 30-minute monitoring session. These are informal user-reported passes, not measurements independently observed by CI or this environment.
+
+Phone model, Android version, APK hash, exact rule parameters, acoustic conditions, battery change, temperature, processed/dropped-window counts and failures were not supplied. Do not infer zero failures, zero battery drain or calibrated detection accuracy. Full quiet/speech/noise, 20-cycle stress and controlled playback protocols remain pending. The user also reports having uninstalled the previous version before installing; a data-preserving upgrade was not established.
+
+| Check | User report | Remaining evidence |
+| --- | --- | --- |
+| Bark events | Working | Model/device/parameters and controlled playback record |
+| Screen locked 10 min | “all good” | Device/OEM settings, window counts |
+| Notification Stop | “all good” | Device/Android and recorded indicator/service observations |
+| Quiet room 5 min | “all good” | Event/candidate counts; separate speech and steady-noise tests |
+| Five Start/Stop cycles | “all good” | Full 20-cycle/relaunch/process-termination protocol |
+| 30-minute session | “all good” | Actual battery/thermal/diagnostics readings |
 
 ## Run record (complete for each phone/session)
 
