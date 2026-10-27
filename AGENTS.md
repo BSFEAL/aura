@@ -7,3 +7,5 @@ Run backend pytest, web npm test/build and Android unit tests/debug compilation 
 Document limitations and keep API/client contracts aligned. Do not commit secrets, databases, or build outputs.
 
 For sound intelligence, keep model assets and label maps pinned and integrity-checked. Run the real-interpreter smoke and Android inference integration tests; fake-only predictions are insufficient. Scores are uncalibrated model outputs, not independently verified events. Preserve typed-rule versions and legacy RMS semantics. Keep physical-device and calibration results pending until actually measured.
+
+The optional OpenAI rule planner sends only explicit, consented rule text/catalog/schema through the authenticated backend. Keep provider keys server-side, fixed official HTTPS endpoint, redirects disabled, time/size/concurrency bounded, and previews read-only. Validate LLM output independently against the curated typed contracts; save only after review, disabled by default. Never add silent fabricated/offline LLM fallback or claim fixtures establish live OpenAI quality. CI uses test-only provider transports; actual YAMNet inference must remain tested.

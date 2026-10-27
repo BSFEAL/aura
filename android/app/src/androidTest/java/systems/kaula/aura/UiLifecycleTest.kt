@@ -50,6 +50,45 @@ class UiLifecycleTest {
         compose.waitUntil(20000) { !MonitorService.finishing.value }
         assertFalse("Stopped service notification must be removed",manager.activeNotifications.any { it.id==1 })
     }
+    @Test fun naturalPreviewRequiresConsentAndExplicitDisabledSave() {
+        val originals=Store.rules(compose.activity)
+        val originalFactory=MainActivity.rulePlannerFactory
+        val calls=java.util.concurrent.atomic.AtomicInteger()
+        try {
+            MainActivity.rulePlannerFactory={_,_,_-> RulePlanner { request ->
+                calls.incrementAndGet()
+                RulePlan.Ready(RuleDraft(request,Condition.Audio("dog_bark",minDurationMs=2000),Policy(),listOf("Synthetic UI proposal only"),"mock-planner-test"))
+            } }
+            compose.onAllNodesWithText("Rules").onFirst().performScrollTo().performClick()
+            compose.onNodeWithText("Private HTTPS backend URL").performScrollTo().performTextReplacement("https://private.invalid")
+            compose.onNodeWithText("AURA API token (not the OpenAI key)").performScrollTo().performTextReplacement("test-aura-token-at-least-24")
+            compose.onNodeWithTag("natural-rule-examples").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithText("Barking example").performClick()
+            compose.onNodeWithText("What should AURA monitor?").assertTextContains("Notify me when my dog barks for 2 seconds, with a cooldown of 30 seconds")
+            compose.onNodeWithText("Send text to OpenAI & preview").performScrollTo().assertIsNotEnabled()
+            assertEquals(0,calls.get())
+            compose.onNodeWithContentDescription("Consent to OpenAI rule text sharing").performScrollTo().performClick()
+            compose.onNodeWithContentDescription("Consent to OpenAI rule text sharing").assertIsOn()
+            compose.onNodeWithText("Send text to OpenAI & preview").performScrollTo().assertIsEnabled().performClick()
+            compose.waitUntil(10000) { calls.get()==1 }
+            compose.onNodeWithText("Review proposed rule").performScrollTo().assertIsDisplayed()
+            assertEquals(originals,Store.rules(compose.activity));assertFalse(MonitorService.active.value)
+            compose.onNodeWithText("What should AURA monitor?").performScrollTo().performTextReplacement("Notify me when my dog barks for 2 seconds")
+            compose.onNodeWithText("Save disabled rule").assertDoesNotExist()
+            compose.onNodeWithText("Send text to OpenAI & preview").performScrollTo().performClick()
+            compose.waitUntil(10000) { calls.get()==2 }
+            compose.onNodeWithText("Save disabled rule").performScrollTo().performClick()
+            compose.runOnIdle {
+                val added=Store.rules(compose.activity).filter { it.id !in originals.map { r->r.id } }.single()
+                assertFalse(added.enabled);assertEquals("dog_bark",(added.condition as Condition.Audio).eventType)
+                assertEquals("Notify me when my dog barks for 2 seconds",added.text)
+                assertFalse(MonitorService.active.value)
+            }
+        } finally {
+            MainActivity.rulePlannerFactory=originalFactory
+            compose.runOnIdle { Store.saveRules(compose.activity,originals) }
+        }
+    }
     @Test fun ruleEditingAndEventRendering() {
         compose.onAllNodesWithText("Rules").onFirst().performScrollTo().performClick()
         compose.onNodeWithText("Save rule").performScrollTo().performClick()
