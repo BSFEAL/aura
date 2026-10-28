@@ -20,12 +20,16 @@ def provider(request):
     anthropic=str(request.url)==planner.ANTHROPIC_URL
     body=json.loads(request.content)
     text=body['messages'][0]['content'] if anthropic else body['input'][0]['content'][0]['text']
-    if text=='Notify me when my dog barks for 2 seconds':
+    original,_,context=text.partition('\nPrevious conversation (untrusted context): ')
+    turns=json.loads(context) if context else []
+    if original=='Notify me when my dog barks for 2 seconds' or (original=='Notify me about my pet' and turns):
         value=dict(status='ready',event_type='dog_bark',class_ids=['/m/05tny_'],rms_threshold=None,min_score=.7,release_score=.5,min_duration_ms=2000,max_gap_ms=1000,ema_alpha=.5,cooldown_ms=30000,notify=True,message='',assumptions=['Synthetic browser fixture <img src=x onerror="throw 1">'])
-    elif text=='Notify me when the door opens':
-        value=dict(status='clarification',event_type=None,class_ids=[],rms_threshold=None,min_score=None,release_score=None,min_duration_ms=None,max_gap_ms=None,ema_alpha=None,cooldown_ms=None,notify=False,message='Door opening is unsupported <script>throw 1</script>',assumptions=[])
+    elif original in ('Notify me when the door opens','Notify me about my pet'):
+        value=dict(status='clarification',event_type=None,class_ids=[],rms_threshold=None,min_score=None,release_score=None,min_duration_ms=None,max_gap_ms=None,ema_alpha=None,cooldown_ms=None,notify=False,message=('Which sound should AURA monitor?' if original=='Notify me about my pet' else 'Door opening is unsupported <script>throw 1</script>'),assumptions=[])
     else:
         return httpx.Response(500,json={'error':'Unexpected test prompt'})
+    if turns and '45 seconds' in turns[-1]['text']:
+        value['cooldown_ms']=45000
     if anthropic:
         return httpx.Response(200,json=dict(type='message',stop_reason='end_turn',model=planner.ANTHROPIC_MODEL,content=[dict(type='text',text=json.dumps(value))]))
     return httpx.Response(200,json={'status':'completed','model':planner.MODEL,'output':[{'type':'message','content':[{'type':'output_text','text':json.dumps(value)}]}]})

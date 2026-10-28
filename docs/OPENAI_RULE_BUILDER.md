@@ -80,3 +80,7 @@ API reference: [OpenAI Responses create](https://platform.openai.com/docs/api-re
 ## Anthropic alternative
 
 v0.4.1 adds explicit Anthropic selection in Android and web. OpenAI remains backward compatible. See [Anthropic setup](ANTHROPIC_RULE_BUILDER.md); consent to one provider never authorizes another.
+
+## Current conversation-first interface
+
+New rule creation has no preset examples, selected events or numeric templates. The LLM may propose settings for explicit approval and accept bounded follow-up messages. See [user-defined rules](USER_DEFINED_RULES.md), which supersedes earlier single-message/example-button UI descriptions. Legacy payloads and saved rules remain compatible.

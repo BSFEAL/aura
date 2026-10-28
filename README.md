@@ -1,4 +1,4 @@
-# AURA v0.4.0 — Natural-language rule previews
+# AURA v0.4.2 — Android sound intelligence interface
 
 **AURA by kaula.systems** is a local-first ambient intelligence platform. This experimental release adds a real, bundled **on-device YAMNet TFLite classifier**, typed rules, temporal sound episodes and Android diagnostics to the verified v0.2 RMS/Compose/FastAPI/SQLite/TypeScript foundation.
 
@@ -8,7 +8,7 @@ Supported curated model classes: **dog barking, alarm or siren, rain, running wa
 
 1. On your phone, open [Android Actions runs](https://github.com/BSFEAL/aura/actions/workflows/android.yml). Choose a successful v0.3 run, sign into GitHub and download `aura-v0.3-debug-apk`. Unzip with Android Files and open `app-debug.apk`. Android 8+ is required. Allow installation from that file manager only if you trust this build. Artifacts expire after 14 days; rerun the workflow if necessary.
 2. For an **upgrade**, keep the same application ID and signing certificate. PR and feature-branch debug keys from different CI runs may differ. Main builds support a retained key with a pinned certificate; see [Android signing setup](docs/ANDROID_SIGNING.md). Do not uninstall to test data preservation. Build both versions locally with the same retained key if the original installed APK's key is unavailable. Existing preference/database migration is tested; cross-key Android upgrade is not possible.
-3. Open **Rules**. Keep/add an RMS rule (e.g. threshold `0.15`), or select a curated sound type. Set activation/release scores, persistence, gap, EMA and cooldown. Defaults for sound rules: `0.70 / 0.50`, `3000 ms`, `1000 ms`, `0.5`, `30000 ms`. They are starting points, not calibrated accuracy claims. Short barks/knocks/doorbells may need shorter persistence; changing it changes false-positive behavior.
+3. Open **Rules → + Create rule** and describe your own event in the blank chat. There are no preset sound types or numeric settings. Configure the private backend/provider and consent to sharing conversation text; AURA can ask questions or propose settings for your approval. Refine in chat, review the exact typed proposal, then **Save disabled rule**. Enable it separately. Existing saved RMS/sound rules remain editable. See [user-defined rules](docs/USER_DEFINED_RULES.md).
 4. **Dashboard → Start monitoring** requests microphone and notification permission. Granting permission alone does not activate capture: tap **Start monitoring again**. Model loading occurs once per explicit session on a worker thread. Status moves through Starting → Active, or visibly Degraded (RMS only) if the model fails.
 5. **Live** displays top raw model outputs and per-rule smoothed scores, persistence and state. **Events** records typed episodes, class IDs, timestamps/duration, peak/mean scores, model/threshold version, device, provenance and notification status. Unknown/unconfirmed is expected when evidence does not meet an enabled rule. A per-class ID filter can apply a distinct threshold to a constituent AudioSet class.
 6. **Stop monitoring** in the app or ongoing microphone notification ends capture. Removing the task also stops the service. There is no boot receiver, sticky restart or hidden activation. Permission loss, capture errors, Android silencing or disabling the active notification stops capture. Alert-only channel settings can suppress alerts while preserving history.
@@ -26,7 +26,7 @@ See [OPENAI_RULE_BUILDER.md](docs/OPENAI_RULE_BUILDER.md) for secure local-machi
 
 **Live** now explains why a classification has not alerted: missing/disabled rule, unavailable profile, score below threshold, insufficient persistence, a tolerated gap or cooldown. Cards name exact classes and show notification readiness separately from the last notification request status. A high **Dog** score does not substitute for **Bark**. **Alerts → Android alert settings** opens Android's channel controls; `posted` is not proof of audible delivery.
 
-**Rules** offers explicit, provisional short-sound (500 ms) and sustained-sound (3000 ms) presets. They only populate editor fields; review and Save are required. Existing saved rules, class mappings, pinned profiles, cooldown and notify settings are not changed automatically. These manual presets do not use an LLM or establish calibration. See [RULE_FEEDBACK.md](docs/RULE_FEEDBACK.md).
+The v0.3.2 preset helpers remain historical/internal compatibility code; the current create UI removes preset buttons and uses an empty user-authored chat. Existing saved rules, mappings and pinned profiles are preserved. [Current rule creation](docs/USER_DEFINED_RULES.md) supersedes the historical preset UI described in [RULE_FEEDBACK.md](docs/RULE_FEEDBACK.md).
 
 ## Local metadata backup (v0.3.1)
 
@@ -120,3 +120,7 @@ See [VALIDATION.md](VALIDATION.md) for executed results/measurements, [MODEL_CAR
 ### Anthropic alternative (v0.4.1)
 
 The natural-language rule preview now offers OpenAI or Anthropic, with provider-specific consent and server-only keys. See [Anthropic setup and safeguards](docs/ANTHROPIC_RULE_BUILDER.md). No automatic provider fallback; saved rules remain local and disabled until explicitly enabled.
+
+### Android UI v0.4.2
+
+The Android interface adopts the navy/cyan AURA design with bottom navigation on phones, a navigation rail and two-column dashboard on tablets, rule-management cards and event details. See [UI design and validation](docs/ANDROID_UI_DESIGN.md). All audio remains transient; playback/spectrograms are omitted because no recordings exist.

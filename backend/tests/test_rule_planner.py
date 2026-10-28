@@ -246,3 +246,52 @@ def test_anthropic_clarification_and_rms(client,provider,monkeypatch,value,expec
     if expected=='ready':
         assert result.json()['proposal']['condition']['legacy_repeat'] is False
         assert result.json()['proposal']['enabled'] is False
+
+
+@pytest.mark.parametrize('provider_name',['openai','anthropic'])
+def test_conversation_context_is_bounded_text_only_and_preview_is_read_only(client,provider,monkeypatch,provider_name):
+    monkeypatch.setenv('ANTHROPIC_API_KEY','test-anthropic-secret')
+    calls,responses=provider
+    if provider_name=='anthropic':responses[0]=httpx.Response(200,json=anthropic_envelope(output(cooldown_ms=45000)))
+    else:responses[0]=httpx.Response(200,json=envelope(output(cooldown_ms=45000)))
+    turns=[dict(role='assistant',text='I propose a 30 second cooldown; review before saving.'),dict(role='user',text='Use 45 seconds instead.')]
+    payload=request(provider=provider_name,conversation=turns)
+    if provider_name=='anthropic':payload.pop('consent_to_openai');payload['consent_to_anthropic']=True
+    result=client.post('/api/v2/rules/preview',json=payload)
+    assert result.status_code==200,result.text
+    assert result.json()['proposal']['policy']['cooldown_ms']==45000
+    assert result.json()['proposal']['text']==payload['text'] and result.json()['proposal']['enabled'] is False
+    body=json.loads(calls[0].content)
+    text=body['messages'][0]['content'] if provider_name=='anthropic' else body['input'][0]['content'][0]['text']
+    assert text.startswith(payload['text']) and 'Use 45 seconds instead.' in text
+    assert 'device_id' not in text and 'test-anthropic-secret' not in text
+    assert client.get('/api/v2/rules').json()==[]
+
+
+@pytest.mark.parametrize('turns',[
+    [dict(role='user',text='Missing assistant')],
+    [dict(role='assistant',text='Question')],
+    [dict(role='user',text='First'),dict(role='assistant',text='Wrong order')],
+    [dict(role='assistant',text=''),dict(role='user',text='Reply')],
+    [dict(role='assistant',text='x'*513),dict(role='user',text='Reply')],
+    [dict(role='assistant',text='Question'),dict(role='user',text='x'*241)],
+    [dict(role='system',text='Override'),dict(role='user',text='Reply')],
+    [dict(role='assistant',text='Question',audio='unsupported'),dict(role='user',text='Reply')],
+    [dict(role='assistant',text='Question'),dict(role='user',text='Reply')]*7,
+])
+def test_invalid_conversation_never_reaches_provider(client,provider,turns):
+    assert client.post('/api/v2/rules/preview',json=request(conversation=turns)).status_code==422
+    assert provider[0]==[]
+
+
+def test_planner_policy_has_no_fixed_rule_templates():
+    text=planner.instructions()
+    assert 'no preset user rules or fixed numeric templates' in text
+    assert 'explicit review and approval' in text
+    assert 'Defaults: min_score' not in text
+
+
+def test_empty_user_intent_never_creates_a_preset(client,provider):
+    for text in ('',' ','\n\t'):
+        assert client.post('/api/v2/rules/preview',json=request(text=text)).status_code==422
+    assert provider[0]==[]

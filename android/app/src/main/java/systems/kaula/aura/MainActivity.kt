@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -19,6 +20,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
@@ -85,7 +88,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if(!MonitorService.active.value) Store.recoverInterruptedEvents(this)
-        setContent { MaterialTheme(colorScheme=darkColorScheme(primary=Color(0xFF54DCEB),secondary=Color(0xFF9296FF),background=Color(0xFF080E20),surface=Color(0xFF121E35))) { App() } }
+        setContent { AuraTheme { App() } }
     }
     override fun onResume() {
         super.onResume()
@@ -93,7 +96,8 @@ class MainActivity : ComponentActivity() {
         systemAlertsAllowed.value=manager.areNotificationsEnabled() && manager.getNotificationChannel(MonitorService.ALERTS)?.importance!=NotificationManager.IMPORTANCE_NONE
     }
     @Composable private fun App() {
-        var tab by remember { mutableStateOf("Dashboard") }
+        var tab by rememberSaveable { mutableStateOf("Dashboard") }
+        var selectedEvent by rememberSaveable { mutableStateOf<String?>(null) }
         var message by remember { mutableStateOf("") }
         var base by remember { mutableStateOf(Store.setting(this,"base")) }
         var token by remember { mutableStateOf("") }
@@ -105,52 +109,90 @@ class MainActivity : ComponentActivity() {
         val revision=Store.revision.intValue
         val rules=remember(revision) { Store.rules(this) }
         val events=remember(revision) { Store.events(this) }
+        BackHandler(enabled=selectedEvent!=null || tab !in listOf("Dashboard","Live","Rules","Events","Settings")) {
+            if(selectedEvent!=null) selectedEvent=null else tab="Settings"
+        }
+        BoxWithConstraints(Modifier.fillMaxSize().testTag("aura-app")) {
+        val tablet=maxWidth>=600.dp
         Scaffold(topBar={
-            Column(Modifier.background(MaterialTheme.colorScheme.background).statusBarsPadding().padding(horizontal=20.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                Text("AURA ◌",style=MaterialTheme.typography.headlineLarge,color=MaterialTheme.colorScheme.primary)
-                Text("SOUND INTELLIGENCE · by kaula.systems · v0.4.1",style=MaterialTheme.typography.labelSmall)
-                Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                    listOf("Dashboard","Live","Rules","Events","Diagnostics","Backup","Devices","Alerts").forEach { page -> FilterChip(selected=tab==page,onClick={tab=page},label={Text(page)}) }
-                }
+            Row(Modifier.fillMaxWidth().background(AuraColors.Background).statusBarsPadding().padding(horizontal=20.dp,vertical=10.dp),verticalAlignment=Alignment.CenterVertically) {
+                AuraBrand(Modifier.weight(1f))
+                IconButton(onClick={tab="Settings";selectedEvent=null},modifier=Modifier.semantics { contentDescription="Open settings" }) { AuraIcon("Settings") }
             }
-        }) { padding ->
-            Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(padding).consumeWindowInsets(padding).imePadding().verticalScroll(rememberScrollState()).padding(20.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
-                Text(tab,style=MaterialTheme.typography.headlineSmall)
-                Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                    Text("${MonitorService.status.value} · ${if(MonitorService.active.value) "Microphone in use" else "Microphone off"}",color=MaterialTheme.colorScheme.primary)
-                    Text("Uncalibrated RMS %.3f".format(MonitorService.level.doubleValue))
-                    Text(if(MonitorService.modelLoaded.value) "On-device YAMNet inference · no audio upload" else "Classifier inactive/unavailable · RMS remains independent",style=MaterialTheme.typography.labelMedium)
-                    if(MonitorService.active.value) Button(onClick={stopService(Intent(this@MainActivity,MonitorService::class.java))}) { Text("Stop monitoring") }
-                    else Button(enabled=!syncing && !fileBusy.value && !MonitorService.finishing.value,onClick={startMonitoring()}) { Text("Start monitoring") }
-                } }
+        },bottomBar={if(!tablet) AuraNavigation(tab,false) { tab=it;selectedEvent=null }}) { padding ->
+            Row(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
+            if(tablet) AuraNavigation(tab,true) { tab=it;selectedEvent=null }
+            Box(Modifier.weight(1f).fillMaxHeight(),contentAlignment=Alignment.TopCenter) {
+            key(tab,selectedEvent) {
+            Column(Modifier.widthIn(max=1000.dp).fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(horizontal=20.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
+                if(tablet || tab!="Dashboard") Text(if(tab=="Events" && selectedEvent!=null) "Event Details" else if(tab=="Live") "Live Sound Intelligence" else tab,style=MaterialTheme.typography.headlineSmall)
+                if(tab!="Dashboard" && MonitorService.active.value) {
+                    Text("${MonitorService.status.value} · Microphone in use · on-device processing",style=MaterialTheme.typography.labelMedium,color=AuraColors.Cyan)
+                    TextButton(onClick={stopService(Intent(this@MainActivity,MonitorService::class.java))}) { Text("Stop monitoring") }
+                }
                 if(MonitorService.error.value.isNotBlank()) Text(MonitorService.error.value,color=MaterialTheme.colorScheme.secondary)
                 if(Store.error.value.isNotBlank()) Text(Store.error.value,color=MaterialTheme.colorScheme.error)
                 if(message.isNotBlank()) Text(message,color=MaterialTheme.colorScheme.secondary)
                 if(backupMessage.value.isNotBlank()) Text(backupMessage.value,color=MaterialTheme.colorScheme.secondary)
                 when(tab) {
                     "Dashboard" -> {
-                        Text("Stay aware. Stay in control.",style=MaterialTheme.typography.headlineMedium)
                         val evidence=MonitorService.live.value.filterKeys { id->rules.any { it.id==id && it.condition is Condition.Audio } }
                         val best=evidence.filterValues { it.phase==Phase.ACTIVE }.maxByOrNull { it.value.smoothed } ?: evidence.maxByOrNull { it.value.smoothed }
                         val active=best?.value?.phase==Phase.ACTIVE
-                        Text(if(active && best!=null) "Possible ${rules.find { it.id==best.key }?.label}" else "Unknown / unconfirmed")
-                        best?.value?.let { Text("Raw score %.3f · smoothed score %.3f".format(it.raw,it.smoothed)) }
-                        Text("Last rule-confirmed episode: ${events.firstOrNull()?.let { it.label+" · "+date(it.startMs) } ?: "None"}")
-                        Text("${rules.count { it.enabled }} enabled rules · ${events.size} local events")
-                        Text("Experimental model scores are not calibrated probabilities. A confirmed rule episode is not proof of a real-world event. RMS is amplitude only, not sound classification or physical decibels.")
-                        Text("Grant microphone and notification permissions, then tap Start again. The persistent notification includes Stop. No automatic reboot/start. This is not a safety, fire, medical or emergency detector.")
+                        val hero: @Composable ()->Unit = {
+                            MonitoringHero(MonitorService.status.value,MonitorService.active.value,MonitorService.modelLoaded.value,
+                                !syncing && !fileBusy.value && !MonitorService.finishing.value,compact=!tablet) {
+                                if(MonitorService.active.value) stopService(Intent(this@MainActivity,MonitorService::class.java)) else startMonitoring()
+                            }
+                        }
+                        val summary: @Composable ()->Unit = {
+                            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+                                Box(Modifier.weight(1f)) { AuraPanel {
+                                    Text("RMS",style=MaterialTheme.typography.labelLarge,color=AuraColors.Muted)
+                                    Text("%.3f".format(MonitorService.level.doubleValue),style=MaterialTheme.typography.headlineMedium)
+                                    Text("Uncalibrated amplitude",style=MaterialTheme.typography.bodySmall,color=AuraColors.Muted)
+                                } }
+                                Box(Modifier.weight(1f)) { AuraPanel {
+                                    Text("Current event",style=MaterialTheme.typography.labelLarge,color=AuraColors.Muted)
+                                    Text(if(active && best!=null) "Possible ${rules.find { it.id==best.key }?.label}" else "Unknown / unconfirmed",style=MaterialTheme.typography.bodyMedium)
+                                    best?.value?.let { Text("Raw %.3f · smoothed %.3f".format(it.raw,it.smoothed),style=MaterialTheme.typography.bodySmall,color=AuraColors.Cyan) }
+                                } }
+                            }
+                            Text(if(MonitorService.modelLoaded.value) "YAMNet · on-device inference" else "Classifier inactive/unavailable · RMS independent",style=MaterialTheme.typography.bodySmall,color=AuraColors.Muted)
+                        }
+                        if(tablet) Row(horizontalArrangement=Arrangement.spacedBy(20.dp)) {
+                            Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(16.dp)) { hero() }
+                            Column(Modifier.weight(1f)) { summary() }
+                        } else { hero();summary() }
+                        AuraPanel {
+                            Text("Last rule-confirmed episode",style=MaterialTheme.typography.titleMedium)
+                            Text(events.firstOrNull()?.let { it.label+" · "+date(it.startMs) } ?: "No events yet",color=AuraColors.Muted)
+                            Text("${rules.count { it.enabled }} enabled rules · ${events.size} local events",color=AuraColors.Cyan)
+                            TextButton(onClick={tab="Events"}) { Text("View event history →") }
+                        }
+                        Text("Model scores are uncalibrated. RMS is amplitude, not sound identification or physical decibels. Rule episodes are not proof of real-world events.",style=MaterialTheme.typography.bodySmall,color=AuraColors.Muted)
+                        Text("Grant permissions, then tap Start again. No automatic activation, audio storage/upload or emergency calls.",style=MaterialTheme.typography.bodySmall,color=AuraColors.Muted)
                     }
                     "Live" -> {
-                        Text("Live sound intelligence",style=MaterialTheme.typography.titleLarge)
                         Text("${ModelSpec.VERSION} · ${ModelSpec.MAPPING} · ${ModelSpec.THRESHOLDS}",style=MaterialTheme.typography.labelSmall)
                         Text("Top model outputs (uncalibrated scores)")
                         Text("Live classifications alone do not alert. A matching enabled rule must satisfy its smoothed threshold, persistence and cooldown; notification settings then apply.")
                         if(MonitorService.top.value.isEmpty()) Text("Unknown / unconfirmed. Start monitoring to run local inference.")
-                        MonitorService.top.value.forEach { score ->
-                            Text("${score.label}: %.3f".format(score.score)); LinearProgressIndicator(progress={score.score},modifier=Modifier.fillMaxWidth())
-                            Text(score.classId,style=MaterialTheme.typography.labelSmall)
-                            Text(RuleFeedback.coverage(score.classId,rules).message,style=MaterialTheme.typography.bodySmall)
+                        AuraPanel {
+                            Text("Top sound classes",style=MaterialTheme.typography.titleMedium)
+                            MonitorService.top.value.forEach { score ->
+                                Row(horizontalArrangement=Arrangement.spacedBy(12.dp),verticalAlignment=Alignment.CenterVertically) {
+                                    AuraIcon(SoundCatalog.events.find { score.classId in it.classIds }?.id ?: "sound")
+                                    Column(Modifier.weight(1f)) {
+                                        Row { Text(score.label,Modifier.weight(1f));Text("%.3f".format(score.score),color=AuraColors.Cyan) }
+                                        LinearProgressIndicator(progress={score.score.coerceIn(0f,1f)},modifier=Modifier.fillMaxWidth().padding(top=6.dp))
+                                    }
+                                }
+                                Text(score.classId,style=MaterialTheme.typography.labelSmall,color=AuraColors.Muted)
+                                Text(RuleFeedback.coverage(score.classId,rules).message,style=MaterialTheme.typography.bodySmall)
+                            }
                         }
+                        LiveScoreChart(MonitorService.top.value,MonitorService.active.value)
                         if(rules.isEmpty()) Text("No rules yet. Stop monitoring, then create a sound rule in Rules.")
                         Text("Rule evaluation · last processed window",style=MaterialTheme.typography.titleMedium)
                         rules.forEach { rule ->
@@ -169,27 +211,64 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     "Rules" -> {
-                        NaturalRuleBuilder(base,token,onConfig={b,t->base=b;token=t},onMessage={message=it})
-                        HorizontalDivider()
-                        RuleEditor(rules,onMessage={message=it})
+                        var naturalBuilder by rememberSaveable { mutableStateOf(false) }
+                        BackHandler(enabled=naturalBuilder) { naturalBuilder=false }
+                        Text("Manage when AURA should notify you",color=AuraColors.Muted)
+                        if(naturalBuilder) TextButton(onClick={naturalBuilder=false}) { Text("← Back to rule management") }
+                        else Button(onClick={naturalBuilder=true},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text("+ Create rule") }
+                        if(naturalBuilder) NaturalRuleBuilder(base,token,onConfig={b,t->base=b;token=t},onMessage={message=it})
+                        else RuleEditor(rules,onMessage={message=it})
                     }
                     "Events" -> {
-                        Text("Event history · latest 200")
-                        if(events.isEmpty()) Text("No local episodes. Create a rule, then explicitly start monitoring.")
-                        events.forEach { event -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
-                            Text(event.label,style=MaterialTheme.typography.titleMedium)
-                            Text("${event.provenance} · ${event.state}",color=MaterialTheme.colorScheme.primary)
-                            if(event.restoredFromBackup) Text("Restored metadata · unverified · no alert replayed",style=MaterialTheme.typography.labelSmall)
-                            Text("Start ${date(event.startMs)} · ${if(event.endMs==null) "active / duration updates at end" else "${event.durationMs} ms"}")
-                            Text("${event.classId ?: "rms_above"} · RMS %.3f".format(event.rms),style=MaterialTheme.typography.labelSmall)
-                            if(event.peakScore!=null) Text("Peak %.3f · mean %.3f (uncalibrated)".format(event.peakScore,event.meanScore))
-                            Text("Device ${event.deviceId}\nModel ${event.modelVersion ?: "none"}\nThreshold ${event.thresholdVersion ?: "none"}\nNotification ${event.notificationStatus}",style=MaterialTheme.typography.labelSmall)
-                        } } }
+                        val detail=events.find { it.id==selectedEvent }
+                        if(detail!=null) EventDetails(detail) { selectedEvent=null }
+                        else {
+                            Text("Event history · latest 200",color=AuraColors.Muted)
+                            if(events.isEmpty()) AuraPanel {
+                                AuraIcon("Events",Modifier.size(40.dp))
+                                Text("Nothing to report yet",style=MaterialTheme.typography.titleLarge)
+                                Text("Create a rule, then explicitly start monitoring. Only event metadata is stored.")
+                            }
+                            events.forEach { event->EventSummary(event) { selectedEvent=event.id } }
+                        }
+                    }
+                    "Settings" -> {
+                        Text("Your AURA",style=MaterialTheme.typography.titleMedium,color=AuraColors.Muted)
+                        AuraPanel {
+                            listOf("Alerts" to "Notification preferences and Android channels","Diagnostics" to "Model, audio capture and inference cadence",
+                                "Devices" to "Device-controlled monitoring · manual HTTPS sync","Backup" to "Export or restore local metadata","About" to "AURA, model and privacy information").forEach { (page,description) ->
+                                TextButton(onClick={tab=page},modifier=Modifier.fillMaxWidth().heightIn(min=64.dp)) {
+                                    Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)) { Text(page,style=MaterialTheme.typography.titleMedium);Text(description,style=MaterialTheme.typography.bodySmall,color=AuraColors.Muted) }
+                                    Text("›",style=MaterialTheme.typography.headlineSmall)
+                                }
+                            }
+                        }
+                        AuraPanel { Text("Privacy and data",style=MaterialTheme.typography.titleMedium);Text("No audio is recorded or uploaded. Optional LLM previews share only consented rule text with your selected provider. Keys stay on your backend. Saved rules run locally.") }
+                    }
+                    "About" -> {
+                        AuraPanel {
+                            AuraBrand(expanded=true)
+                            Text("by kaula.systems · v0.4.2 (8)")
+                            Text("Local-first ambient intelligence. Experimental on-device sound classification with explicit user control.")
+                            DetailLine("Model",ModelSpec.VERSION)
+                            DetailLine("Classes","521 AudioSet classes · curated rule mapping")
+                            Text("Not a security, fire, medical or emergency system. Scores are uncalibrated. No audio recording or autonomous calls.")
+                            TextButton(onClick={startActivity(Intent(Intent.ACTION_VIEW,android.net.Uri.parse("https://github.com/BSFEAL/aura")))}) { Text("Open source & documentation ↗") }
+                        }
                     }
                     "Diagnostics" -> {
-                        Text("Model ${if(MonitorService.modelLoaded.value) "loaded" else "inactive / unavailable"}")
-                        Text("${ModelSpec.VERSION} · 4,126,810-byte asset · 15,600-sample window · 521 classes")
-                        Text(MonitorService.stats.value.ifBlank { "No session measurements yet. 16 kHz mono PCM16 input. CPU-only inference, two native threads." })
+                        AuraPanel {
+                            Text("Model",style=MaterialTheme.typography.titleMedium)
+                            DetailLine("Status",if(MonitorService.modelLoaded.value) "Loaded" else "Inactive / unavailable")
+                            DetailLine("Version",ModelSpec.VERSION)
+                            DetailLine("Asset size","4,126,810 bytes")
+                            DetailLine("Window / classes","975 ms · 15,600 samples · 521 classes")
+                        }
+                        AuraPanel {
+                            Text("Inference performance",style=MaterialTheme.typography.titleMedium)
+                            Text(MonitorService.stats.value.ifBlank { "No session measurements yet." })
+                        }
+                        AuraPanel { Text("Audio capture",style=MaterialTheme.typography.titleMedium);DetailLine("Sample rate","16,000 Hz");DetailLine("Channel / format","Mono · signed PCM16");DetailLine("Current RMS","%.3f".format(MonitorService.level.doubleValue));DetailLine("Engine","CPU · two native threads") }
                         OutlinedTextField(value=cadence,onValueChange={cadence=it},label={Text("Inference interval ms (250–2000)")},modifier=Modifier.fillMaxWidth())
                         Button(enabled=!MonitorService.active.value && !MonitorService.finishing.value,onClick={
                             val ms=cadence.toIntOrNull()
@@ -242,6 +321,10 @@ class MainActivity : ComponentActivity() {
                 }
                 Spacer(Modifier.height(20.dp))
             }
+            }
+            }
+            }
+        }
         }
         pendingRestore.value?.let { backup ->
             AlertDialog(onDismissRequest={pendingRestore.value=null},title={Text("Restore metadata?")},
@@ -263,6 +346,8 @@ class MainActivity : ComponentActivity() {
     }
     @Composable private fun NaturalRuleBuilder(base: String, token: String, onConfig: (String,String)->Unit, onMessage: (String)->Unit) {
         var request by remember { mutableStateOf("") }
+        var input by remember { mutableStateOf("") }
+        var conversation by remember { mutableStateOf<List<RuleChatTurn>>(emptyList()) }
         var result by remember { mutableStateOf<RulePlan?>(null) }
         var planning by remember { mutableStateOf(false) }
         var consent by remember { mutableStateOf(false) }
@@ -272,8 +357,9 @@ class MainActivity : ComponentActivity() {
         val keyboard=LocalSoftwareKeyboardController.current
         val scope=rememberCoroutineScope()
         val stopped=!MonitorService.active.value && !MonitorService.finishing.value
-        Text("Describe a monitoring rule",style=MaterialTheme.typography.titleLarge)
-        Text("$providerName rule preview via your local/private backend. Only rule text and the supported catalog are sent to $providerName; microphone audio stays on-device. Provider keys belong in the backend environment, never this app. Provider retention policies apply.")
+        Text("Create a rule through chat",style=MaterialTheme.typography.titleLarge)
+        Text("Describe the event in your own words. No sound or rule settings are preselected. AURA can propose settings for your approval; nothing is saved or activated by chatting.")
+        Text("The conversation text and supported catalog are sent to $providerName through your private backend. Microphone audio stays on-device. Provider keys stay on your backend; provider retention policies apply.",style=MaterialTheme.typography.bodySmall,color=AuraColors.Muted)
         Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
             listOf("openai" to "OpenAI","anthropic" to "Anthropic").forEach { (id,label) ->
                 OutlinedButton(enabled=stopped && !planning,onClick={provider=id;result=null;consent=false}) { Text(if(provider==id) "$label ✓" else label) }
@@ -281,29 +367,31 @@ class MainActivity : ComponentActivity() {
         }
         OutlinedTextField(value=base,onValueChange={onConfig(it,token);result=null;consent=false},enabled=stopped && !planning,label={Text("Private HTTPS backend URL")},keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Uri),singleLine=true,modifier=Modifier.fillMaxWidth())
         OutlinedTextField(value=token,onValueChange={onConfig(base,it);result=null;consent=false},enabled=stopped && !planning,label={Text("AURA API token (not a provider key)")},visualTransformation=PasswordVisualTransformation(),keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Password),singleLine=true,modifier=Modifier.fillMaxWidth())
-        OutlinedTextField(value=request,onValueChange={request=it;result=null},enabled=stopped && !planning,
-            label={Text("What should AURA monitor?")},supportingText={Text("${request.length}/240 characters · preview before saving")},modifier=Modifier.fillMaxWidth())
-        Row(Modifier.testTag("natural-rule-examples").horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-            listOf("Barking example" to "Notify me when my dog barks for 2 seconds, with a cooldown of 30 seconds",
-                "Faucet example" to "Notify me when the tap is running for 3 seconds",
-                "Doorbell example" to "Notify me when the doorbell rings").forEach { (label,example) ->
-                OutlinedButton(enabled=stopped && !planning,onClick={focus.clearFocus();keyboard?.hide();request=example;result=null}) { Text(label) }
-            }
-        }
-        Row { Text("Allow sending this rule text to $providerName through my backend",Modifier.weight(1f)); Checkbox(modifier=Modifier.semantics { contentDescription="Consent to $providerName rule text sharing" },checked=consent,onCheckedChange={consent=it;result=null},enabled=stopped && !planning) }
-        Button(enabled=stopped && !planning && consent && base.isNotBlank() && token.length>=24 && request.isNotBlank() && request.length<=240,onClick={
+        if(request.isNotBlank()) AuraPanel { Text("You",color=AuraColors.Cyan);Text(request) }
+        conversation.forEach { turn -> AuraPanel { Text(if(turn.role=="user") "You" else "AURA · proposed, unverified",color=if(turn.role=="user") AuraColors.Cyan else AuraColors.Indigo);Text(turn.text) } }
+        OutlinedTextField(value=input,onValueChange={input=it;result=null},enabled=stopped && !planning,
+            label={Text("What should AURA monitor?")},supportingText={Text("${input.length}/240 characters · describe or refine your rule")},modifier=Modifier.fillMaxWidth())
+        Row { Text("Allow sharing this conversation with $providerName through my backend",Modifier.weight(1f)); Checkbox(modifier=Modifier.semantics { contentDescription="Consent to $providerName rule text sharing" },checked=consent,onCheckedChange={consent=it;result=null},enabled=stopped && !planning) }
+        Button(enabled=stopped && !planning && consent && base.isNotBlank() && token.length>=24 && input.isNotBlank() && input.length<=240 && conversation.size<12,onClick={
             focus.clearFocus();keyboard?.hide()
-            val submitted=request;planning=true;result=null
+            val submitted=if(request.isBlank()) input else request
+            val turns=if(request.isBlank()) emptyList() else conversation+RuleChatTurn("user",input)
+            planning=true;result=null
             scope.launch {
                 try {
                     val planner=rulePlannerFactory(base,token,Store.localDeviceId(this@MainActivity),provider)
-                    val proposal=planner.propose(submitted)
-                    if(request==submitted) result=proposal
+                    val proposal=planner.converse(submitted,turns)
+                    request=submitted;input="";result=proposal
+                    val response=when(proposal) { is RulePlan.Clarify -> proposal.message;is RulePlan.Ready -> proposal.draft.chatSummary() }
+                    conversation=turns+RuleChatTurn("assistant",response).validate()
                 } catch(e: CancellationException) { throw e }
-                catch(_: Exception) { onMessage("Rule preview failed. Check private HTTPS URL, AURA token and backend provider setup. No rule saved.") }
+                catch(_: Exception) { onMessage("Chat failed. Check private HTTPS URL, AURA token and backend provider setup. No rule saved.") }
                 finally { planning=false }
             }
-        }) { Text(if(planning) "Preparing preview…" else "Send text to $providerName & preview") }
+        }) { Text(if(planning) "Preparing reply…" else "Send to $providerName") }
+        if(conversation.size>=12) Text("Conversation limit reached. Review the proposal or start a new conversation; context is never silently dropped.")
+        TextButton(enabled=!planning,onClick={request="";input="";conversation=emptyList();result=null;consent=false}) { Text("New conversation") }
+        Text("Learning from an event recording is a future feature. No recording is captured, stored or uploaded here.",style=MaterialTheme.typography.bodySmall,color=AuraColors.Muted)
         when(val proposal=result) {
             is RulePlan.Clarify -> Text("Clarification needed: ${proposal.message}",color=MaterialTheme.colorScheme.secondary)
             is RulePlan.Ready -> {
@@ -323,12 +411,12 @@ class MainActivity : ComponentActivity() {
                     }
                     Text("Cooldown ${draft.policy.cooldownMs} ms · notify ${draft.policy.notify} · saved disabled")
                     draft.assumptions.forEach { Text(it,style=MaterialTheme.typography.bodySmall) }
-                    Button(enabled=stopped && !planning && request==draft.request,onClick={
+                    Button(enabled=stopped && !planning && request==draft.request && input.isBlank(),onClick={
                         try {
-                            check(request==draft.request && !MonitorService.active.value && !MonitorService.finishing.value) { "Preview again while monitoring is stopped" }
+                            check(request==draft.request && input.isBlank() && !MonitorService.active.value && !MonitorService.finishing.value) { "Preview again while monitoring is stopped" }
                             val rule=draft.asDisabledRule(UUID.randomUUID().toString(),Store.localDeviceId(this@MainActivity))
                             Store.saveRules(this@MainActivity,Store.rules(this@MainActivity)+rule)
-                            result=null;request="";onMessage("Disabled rule saved. Review and enable it in Rules, then Start monitoring explicitly.")
+                            result=null;request="";input="";conversation=emptyList();onMessage("Disabled rule saved. Review and enable it in Rules, then Start monitoring explicitly.")
                         } catch(_: Exception) { onMessage("Rule could not be saved. Check local capacity and preview again while stopped.") }
                     }) { Text("Save disabled rule") }
                     TextButton(onClick={result=null}) { Text("Discard preview") }
@@ -339,28 +427,55 @@ class MainActivity : ComponentActivity() {
     }
     @Composable private fun RuleEditor(rules: List<LocalRule>,onMessage: (String)->Unit) {
         var editing by remember { mutableStateOf<LocalRule?>(null) }
-        var eventType by remember { mutableStateOf("rms_above") }
-        var value by remember { mutableStateOf("0.15") }
+        var eventType by remember { mutableStateOf("") }
+        var value by remember { mutableStateOf("") }
         var classId by remember { mutableStateOf<String?>(null) }
-        var release by remember { mutableStateOf("0.5") }
-        var persistence by remember { mutableStateOf("3000") }
-        var gap by remember { mutableStateOf("1000") }
-        var alpha by remember { mutableStateOf("0.5") }
-        var cooldown by remember { mutableStateOf("30000") }
-        var notify by remember { mutableStateOf(true) }
-        var natural by remember { mutableStateOf("Notify me when sound level is above 0.15") }
-        Text(if(editing==null) "Create a typed rule" else "Edit ${editing?.label}",style=MaterialTheme.typography.titleMedium)
-        Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-            (listOf("rms_above" to "RMS")+SoundCatalog.events.map { it.id to it.label }).forEach { (id,label) -> FilterChip(selected=eventType==id,onClick={eventType=id;classId=null;value=if(id=="rms_above") "0.15" else "0.7"},label={Text(label)}) }
+        var release by remember { mutableStateOf("") }
+        var persistence by remember { mutableStateOf("") }
+        var gap by remember { mutableStateOf("") }
+        var alpha by remember { mutableStateOf("") }
+        var cooldown by remember { mutableStateOf("") }
+        var notify by remember { mutableStateOf(false) }
+        var showForm by remember { mutableStateOf(false) }
+        BackHandler(enabled=showForm) { editing=null;showForm=false }
+        if(!showForm) {
+            if(rules.isEmpty()) AuraPanel { Text("No rules yet",style=MaterialTheme.typography.titleLarge);Text("Describe your own event in chat to create a rule. AURA proposes settings only for your approval. No microphone activates automatically.") }
+        rules.forEach { rule -> AuraPanel {
+            Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+                AuraIcon((rule.condition as? Condition.Audio)?.eventType ?: "rms_above",Modifier.size(32.dp))
+                Text(rule.label,Modifier.weight(1f),style=MaterialTheme.typography.titleMedium)
+                Switch(modifier=Modifier.semantics { contentDescription="Enable ${rule.label}" },checked=rule.enabled,onCheckedChange={enabled->Store.saveRules(this@MainActivity,rules.map { if(it.id==rule.id) it.copy(enabled=enabled) else it })})
+            }
+            Text(when(val c=rule.condition) {
+                is Condition.Audio -> "Score ≥ ${c.minScore} · ${c.minDurationMs} ms duration · ${rule.policy.cooldownMs} ms cooldown"
+                is Condition.Rms -> "RMS > ${c.threshold} · ${rule.policy.cooldownMs} ms cooldown"
+            },style=MaterialTheme.typography.bodySmall,color=AuraColors.Cyan)
+            Text(RuleFeedback.classes(rule),style=MaterialTheme.typography.labelSmall)
+            Text("Notifications: "+RuleFeedback.notificationSetting(rule,Store.notifications(this@MainActivity),systemAlertsAllowed.value),style=MaterialTheme.typography.bodySmall)
+            Text("Schema ${rule.schemaVersion} · ${if(rule.remote) "API download" else "local"}",style=MaterialTheme.typography.labelSmall)
+            rule.unavailableReason(MonitorService.modelLoaded.value)?.let { Text(it,color=MaterialTheme.colorScheme.secondary) }
+            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                TextButton(enabled=!MonitorService.active.value && !MonitorService.finishing.value,onClick={
+                    showForm=true;editing=rule;cooldown=rule.policy.cooldownMs.toString();notify=rule.policy.notify
+                    when(val c=rule.condition) {
+                        is Condition.Rms -> { eventType="rms_above";value=c.threshold.toString() }
+                        is Condition.Audio -> { eventType=c.eventType;classId=c.classId;value=c.minScore.toString();release=c.releaseScore.toString();persistence=c.minDurationMs.toString();gap=c.maxGapMs.toString();alpha=c.emaAlpha.toString() }
+                    }
+                }) { Text("Edit") }
+                TextButton(onClick={Store.saveRules(this@MainActivity,rules.filter { it.id!=rule.id })}) { Text("Delete") }
+            }
+        } }
+            Text("Stop monitoring to edit or create rules. Unsupported model/mapping versions are displayed and never evaluated.",style=MaterialTheme.typography.bodySmall,color=AuraColors.Muted)
+            return
         }
-        OutlinedTextField(value=value,onValueChange={value=it},label={Text(if(eventType=="rms_above") "RMS threshold" else "Activation score (provisional)")},modifier=Modifier.fillMaxWidth())
+        TextButton(onClick={editing=null;showForm=false}) { Text("← Back to rules") }
+        Text("Edit ${editing?.label}",style=MaterialTheme.typography.titleMedium)
+        Text("These are the saved settings of your existing rule, not a preset for a new rule.",style=MaterialTheme.typography.bodySmall)
+        Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+            (listOf("rms_above" to "RMS")+SoundCatalog.events.map { it.id to it.label }).forEach { (id,label) -> FilterChip(selected=eventType==id,onClick={eventType=id;classId=null},label={Text(label)}) }
+        }
+        OutlinedTextField(value=value,onValueChange={value=it},label={Text(if(eventType=="rms_above") "RMS threshold" else "Activation score (provisional)")},keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Decimal),modifier=Modifier.fillMaxWidth())
         if(eventType!="rms_above") {
-            Text("Optional presets · uncalibrated starting points. Applying one only changes this form; Save is required. Existing saved rules do not change automatically.")
-            RulePresets.all.forEach { preset -> OutlinedButton(enabled=!MonitorService.active.value && !MonitorService.finishing.value,onClick={
-                val c=preset.apply(Condition.Audio(eventType,classId=classId))
-                value=c.minScore.toString();release=c.releaseScore.toString();persistence=c.minDurationMs.toString();gap=c.maxGapMs.toString();alpha=c.emaAlpha.toString()
-                onMessage("${preset.label}: score $value / release $release, persistence $persistence ms, gap $gap ms, EMA $alpha. Cooldown, notify and pinned versions are unchanged. Review then Save.")
-            }) { Text(preset.label) } }
             Text("Mapped classes: "+(classId?.let { setOf(it) } ?: requireNotNull(SoundCatalog.event(eventType)).classIds).sorted().joinToString { "${SoundCatalog.classLabels[it]} ($it)" })
             if(eventType=="dog_bark") Text("This rule uses Bark, not the broader Dog class. A high Dog score alone does not satisfy it.")
             Text("Per-class threshold scope (all mapped classes use max score by default)")
@@ -378,40 +493,16 @@ class MainActivity : ComponentActivity() {
         Row { Text("Notify for this rule",Modifier.weight(1f)); Switch(modifier=Modifier.semantics { contentDescription="Notify for this rule" },checked=notify,onCheckedChange={notify=it}) }
         Button(enabled=!MonitorService.active.value && !MonitorService.finishing.value,onClick={
             try {
+                check(editing!=null) { "Create new rules through chat" }
                 val condition=if(eventType=="rms_above") Condition.Rms(value.toDouble(),(editing?.condition as? Condition.Rms)?.legacyRepeat ?: false) else Condition.Audio(eventType,value.toFloat(),release.toFloat(),persistence.toLong(),gap.toLong(),alpha.toFloat(),
                     modelVersion=(editing?.condition as? Condition.Audio)?.modelVersion ?: ModelSpec.VERSION,
                     mappingVersion=(editing?.condition as? Condition.Audio)?.mappingVersion ?: ModelSpec.MAPPING,
                     thresholdVersion=(editing?.condition as? Condition.Audio)?.thresholdVersion ?: ModelSpec.THRESHOLDS,classId=classId)
                 val rule=LocalRule(id=editing?.id ?: UUID.randomUUID().toString(),enabled=editing?.enabled ?: true,source=editing?.source ?: Source(Store.localDeviceId(this@MainActivity)),condition=condition,policy=Policy(cooldown.toLong(),notify),text=editing?.text ?: "",remote=editing?.remote ?: false).validate()
-                Store.saveRules(this@MainActivity,rules.filter { it.id!=rule.id }+rule);editing=null;onMessage("Rule saved; microphone activation remains manual")
+                Store.saveRules(this@MainActivity,rules.filter { it.id!=rule.id }+rule);editing=null;showForm=false;onMessage("Rule saved; microphone activation remains manual")
             } catch(_: Exception) { onMessage("Invalid rule. Check finite scores, release < activation, duration/gap/cooldown ranges and selected capability.") }
         }) { Text(if(editing==null) "Save rule" else "Save changes") }
-        if(editing!=null) TextButton(onClick={editing=null}) { Text("Cancel edit") }
-        Text("Legacy RMS language input")
-        OutlinedTextField(value=natural,onValueChange={natural=it},label={Text("Natural language RMS rule")},modifier=Modifier.fillMaxWidth())
-        Button(enabled=!MonitorService.active.value && !MonitorService.finishing.value,onClick={
-            val threshold=Signal.parseRule(natural)
-            if(threshold==null) onMessage("Supported: Notify me when sound level is above 0.15")
-            else try { Store.saveRules(this@MainActivity,rules+LocalRule(id=UUID.randomUUID().toString(),source=Source(Store.localDeviceId(this@MainActivity)),condition=Condition.Rms(threshold,true),text=natural));onMessage("RMS rule saved") } catch(e: Exception) { onMessage(e.message ?: "Could not save") }
-        }) { Text("Create local RMS rule") }
-        rules.forEach { rule -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) {
-            Text(rule.label,style=MaterialTheme.typography.titleMedium)
-            Text(RuleFeedback.classes(rule),style=MaterialTheme.typography.labelSmall)
-            Text("Notifications: "+RuleFeedback.notificationSetting(rule,Store.notifications(this@MainActivity),systemAlertsAllowed.value),style=MaterialTheme.typography.bodySmall)
-            Text("Schema ${rule.schemaVersion} · ${if(rule.remote) "API download" else "local"}",style=MaterialTheme.typography.labelSmall)
-            rule.unavailableReason(MonitorService.modelLoaded.value)?.let { Text(it,color=MaterialTheme.colorScheme.secondary) }
-            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                Switch(modifier=Modifier.semantics { contentDescription="Enable ${rule.label}" },checked=rule.enabled,onCheckedChange={enabled->Store.saveRules(this@MainActivity,rules.map { if(it.id==rule.id) it.copy(enabled=enabled) else it })})
-                TextButton(enabled=!MonitorService.active.value && !MonitorService.finishing.value,onClick={
-                    editing=rule;cooldown=rule.policy.cooldownMs.toString();notify=rule.policy.notify
-                    when(val c=rule.condition) {
-                        is Condition.Rms -> { eventType="rms_above";value=c.threshold.toString() }
-                        is Condition.Audio -> { eventType=c.eventType;classId=c.classId;value=c.minScore.toString();release=c.releaseScore.toString();persistence=c.minDurationMs.toString();gap=c.maxGapMs.toString();alpha=c.emaAlpha.toString() }
-                    }
-                }) { Text("Edit") }
-                TextButton(onClick={Store.saveRules(this@MainActivity,rules.filter { it.id!=rule.id })}) { Text("Delete") }
-            }
-        } } }
+        if(editing!=null) TextButton(onClick={editing=null;showForm=false}) { Text("Cancel edit") }
         Text("Stop monitoring to edit or create rules. Changing a rule resets its detector. Unsupported model/mapping versions are displayed and never evaluated.")
     }
     private fun date(ms: Long)=DateFormat.getDateTimeInstance().format(Date(ms))

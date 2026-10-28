@@ -4,3 +4,4 @@
 .event>div:nth-child(2){min-width:0;overflow-wrap:anywhere}.rule{flex-wrap:wrap}.rule>div{min-width:0;flex:1 1 170px}
 .rule-preview{padding:16px;margin:16px 0;border:1px solid #3f6488;border-radius:12px;overflow-wrap:anywhere}.rule-preview button{margin:6px 8px 6px 0}
 input[type="checkbox"]{width:auto;justify-self:start;accent-color:#54dceb;padding:0}
+.panel{min-width:0;overflow-wrap:anywhere}

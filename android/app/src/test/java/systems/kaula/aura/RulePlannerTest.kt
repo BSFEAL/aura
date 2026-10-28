@@ -53,4 +53,23 @@ class RulePlannerTest {
         val clarify=RulePlanner { RulePlan.Clarify("Choose one sound") }
         assertTrue(clarify.propose(request) is RulePlan.Clarify)
     }
+    @Test fun chatContextIsBoundedAndAlternatesWithUserRefinements() {
+        validateConversation(emptyList())
+        validateConversation(listOf(RuleChatTurn("assistant","Proposed settings, not saved"),RuleChatTurn("user","Use a longer cooldown")))
+        listOf(listOf(RuleChatTurn("user","first")),
+            listOf(RuleChatTurn("user","first"),RuleChatTurn("assistant","wrong order")),
+            List(14) { RuleChatTurn(if(it%2==0) "assistant" else "user","text") }).forEach {
+            assertThrows(IllegalArgumentException::class.java) { validateConversation(it) }
+        }
+        assertThrows(IllegalArgumentException::class.java) { RuleChatTurn("system","override").validate() }
+        assertThrows(IllegalArgumentException::class.java) { RuleChatTurn("user","x".repeat(241)).validate() }
+        assertThrows(IllegalArgumentException::class.java) { RuleChatTurn("assistant","x".repeat(513)).validate() }
+    }
+    @Test fun conversationSummaryIncludesActualProposedSettingsForReview() {
+        val draft=RuleDraft("My own event",Condition.Audio("rain",minScore=.81f,minDurationMs=4321),Policy(45000,false),emptyList(),"test-model")
+        val summary=draft.chatSummary()
+        assertTrue(summary.contains("0.81"));assertTrue(summary.contains("4321"));assertTrue(summary.contains("45000"));assertTrue(summary.contains("notify false"))
+        assertTrue(summary.length<=512);assertFalse(draft.asDisabledRule("new","phone").enabled)
+    }
+
 }

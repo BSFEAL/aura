@@ -11,8 +11,8 @@ android {
         applicationId = "systems.kaula.aura"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "0.4.1"
+        versionCode = 8
+        versionName = "0.4.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     sourceSets.getByName("test").resources.srcDir("../../contracts")
